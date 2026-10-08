@@ -130,8 +130,7 @@ catalog:
   # `TileSource` — so the affordance appeared on a library's map and not on a file's, for a reason no
   # user could infer, while the alignment view deep-zooms both. On a Published Site the
   # pyramid *does* have a URL: it is static files beside `index.html`, so the viewer's component reads
-  # it over HTTP with nothing injected. The `TileSource` object that gap waits on is still kept, at
-  # `packages/core/src/injection/openseadragon-tile-source.ts`, with the gap named in its header.
+  # it over HTTP with nothing injected.
   triiiceratops: 1.0.0-rc.35
 
   # `@allmaps/maplibre` is the ADR-0011 injection point for warped rendering: `fetchFn` on

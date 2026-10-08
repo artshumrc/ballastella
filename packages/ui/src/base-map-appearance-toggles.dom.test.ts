@@ -1,10 +1,3 @@
-// What the appearance control renders, asserted against the component rather than against an app.
-//
-// Its subject is the one property that made it worth building: the switches are independent, so
-// flipping one carries the others through untouched. A control that quietly reset its neighbours
-// would look right in every screenshot and lose a scholar's contour lines the moment they raised
-// the contrast.
-
 import type { BaseMapAppearance } from '@ballastella/core';
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -24,7 +17,6 @@ const render = (props: {
 	appearance: BaseMapAppearance;
 	onChange: (appearance: BaseMapAppearance) => void;
 	legend?: string;
-	legendSrOnly?: boolean;
 }) => {
 	mounted = mount(BaseMapAppearanceToggles, { target: document.body, props });
 	flushSync();
@@ -68,9 +60,7 @@ test('shows each switch in the state it was given', () => {
 });
 
 test('reports the whole appearance, carrying the switches it did not touch', () => {
-	// ⚠ **The assertion this component exists for.** The named variants it replaced could not have
-	// passed it: a low-vision Reader who raised the contrast lost the author's relief to do it, because
-	// there was no entry that was both. Here the other two switches travel through untouched.
+	// ⚠ **The assertion this component exists for.** The named variants it replaced could not have passed it: a low-vision Reader who raised the contrast lost the author's relief to do it, because there was no entry that was…
 	const onChange = vi.fn();
 	render({
 		appearance: { streets: false, relief: true, highContrast: false, imagery: false },
@@ -107,10 +97,8 @@ test('switches a thing off as readily as on', () => {
 });
 
 test('names every switch and its consequence, and never in a tooltip', () => {
-	// ADR-0016: daisyUI renders `title` through CSS `::before`, which no screen reader announces, so a
-	// toggle whose meaning is only in a tooltip has no meaning for anyone not using a mouse.
+	// ADR-0016: daisyUI renders `title` through CSS `::before`, which no screen reader announces, so a toggle whose meaning is only in a tooltip has no meaning for anyone not using a mouse.
 	render({ appearance: STREETS_ONLY, onChange: () => {} });
-
 	expect(toggle('streets')).toHaveAccessibleName('Streets — roads, buildings and places');
 	expect(toggle('relief')).toHaveAccessibleName('Topography — shaded relief and contour lines');
 	expect(toggle('highContrast')).toHaveAccessibleName(
@@ -119,34 +107,20 @@ test('names every switch and its consequence, and never in a tooltip', () => {
 	expect(document.querySelector('[title]')).toBeNull();
 });
 
-test('groups the three under one legend, kept for a screen reader when taken off screen', () => {
-	// One question with three answers: "Streets, checkbox" announced on its own says nothing about
-	// what it is a property of.
+test('groups the three under one legend', () => {
 	render({ appearance: STREETS_ONLY, onChange: () => {}, legend: 'Base Map detail' });
 	expect(document.querySelector('fieldset > legend')).toHaveTextContent('Base Map detail');
-	expect(document.querySelector('legend')).not.toHaveClass('sr-only');
-
-	if (mounted) unmount(mounted);
-	document.body.innerHTML = '';
-
-	render({ appearance: STREETS_ONLY, onChange: () => {}, legendSrOnly: true });
-	expect(document.querySelector('legend')).toHaveClass('sr-only');
 });
 
 test('takes the high-contrast switch away while the satellite is on, rather than leaving it inert', () => {
-	// ⚠ The palette repaints land, water and buildings, and a photograph is none of them. A control
-	// that stays live and does nothing is worst for the Reader who most needs it.
 	const onChange = vi.fn();
 	render({ appearance: { ...STREETS_ONLY, imagery: true }, onChange });
-
 	expect(toggle('highContrast').disabled).toBe(true);
 	expect(toggle('streets').disabled).toBe(false);
 	expect(toggle('relief').disabled).toBe(false);
 });
 
 test('switches the high contrast off as it switches the satellite on', () => {
-	// The exclusion is the model's (`drawnAppearance`), applied here so the recorded appearance never
-	// claims a palette the map is not drawing.
 	const onChange = vi.fn();
 	render({
 		appearance: { streets: true, relief: false, highContrast: true, imagery: false },

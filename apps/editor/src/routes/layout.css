@@ -1,123 +1,12 @@
 @import 'tailwindcss';
 
-/* What belongs to the components both apps render, rather than to this app's routes — the Layer
-   card's ink custom properties among them, and the `@source` that lets Tailwind see the classes
-   those components are written with (ADR-0034). */
 @import '@ballastella/ui/layout.css';
-
-/* ADR-0016: daisyUI is the only UI dependency. Every built-in theme is selectable; the two custom
-   Carto themes below remain the system-preference defaults and ship in both apps. The explicit list
-   deliberately gives no built-in theme `--default` or `--prefersdark`, because those first-paint
-   roles belong to Carto. */
-@plugin 'daisyui' {
-	themes:
-		light, dark, cupcake, bumblebee, emerald, corporate, synthwave, retro, cyberpunk, valentine,
-		halloween, garden, forest, aqua, lofi, pastel, fantasy, wireframe, black, luxury, dracula, cmyk,
-		autumn, business, acid, lemonade, night, coffee, winter, dim, nord, sunset, caramellatte, abyss,
-		silk;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────────────────
-   Carto — the generated theme (ADR-0036). These blocks are duplicated in the viewer stylesheet and
-   must move together. The full token sets avoid inheriting unrelated values from another palette;
-   `default` and `prefersdark` provide the correct prerendered first paint before ThemeSignal writes
-   `data-theme`. */
-@plugin 'daisyui/theme' {
-	name: 'carto-light';
-	default: true;
-	prefersdark: false;
-	color-scheme: 'light';
-
-	--color-base-100: #fbfaf7;
-	--color-base-200: #f1eee7;
-	--color-base-300: #ddd7ca;
-	--color-base-content: #14181f;
-	--color-primary: #8a5f14;
-	--color-primary-content: #fff9ec;
-	--color-secondary: #3e5a73;
-	--color-secondary-content: #f2f6f9;
-	--color-accent: #14625e;
-	--color-accent-content: #effaf8;
-	--color-neutral: #2a3038;
-	--color-neutral-content: #f3f2ee;
-	--color-info: #2b457d;
-	--color-success: #1f6a4a;
-	--color-warning: #9a6412;
-	--color-error: #9e2f2a;
-	/* Stated, not inherited: see the note above. */
-	--color-info-content: #fbfaf7;
-	--color-success-content: #fbfaf7;
-	--color-warning-content: #fbfaf7;
-	--color-error-content: #fbfaf7;
-
-	--radius-selector: 0rem; /* toggle, range, checkbox, badge */
-	--radius-field: 0rem; /* button, input, select, textarea, menu, kbd */
-	--radius-box: 0rem; /* card, modal, alert, select (outer) */
-	--size-selector: 0.25rem;
-	--size-field: 0.25rem;
-	--border: 1px;
-	--depth: 0;
-	--noise: 0;
-}
-
-@plugin 'daisyui/theme' {
-	name: 'carto-dark';
-	prefersdark: true;
-	color-scheme: 'dark';
-
-	--color-base-100: #1a2130;
-	--color-base-200: #141a24;
-	--color-base-300: #0d121a;
-	--color-base-content: #e9e7e2;
-	--color-primary: #d6a244;
-	--color-primary-content: #171208;
-	--color-secondary: #7e9bb6;
-	--color-secondary-content: #0c1219;
-	--color-accent: #45bdb3;
-	--color-accent-content: #04191a;
-	--color-neutral: #3a4553;
-	--color-neutral-content: #e9e7e2;
-	--color-info: #7493d1;
-	--color-success: #57b98c;
-	--color-warning: #e0a63c;
-	--color-error: #e1615a;
-	/* Stated, not inherited: see the note above. */
-	--color-info-content: #14181f;
-	--color-success-content: #14181f;
-	--color-warning-content: #14181f;
-	--color-error-content: #14181f;
-
-	--radius-selector: 0rem; /* toggle, range, checkbox, badge */
-	--radius-field: 0rem; /* button, input, select, textarea, menu, kbd */
-	--radius-box: 0rem; /* card, modal, alert, select (outer) */
-	--size-selector: 0.25rem;
-	--size-field: 0.25rem;
-	--border: 1px;
-	--depth: 0;
-	--noise: 0;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────────────────
-   Overlay points on a map pane.
-
-   Global, and here rather than in a component, because these elements are created
-   imperatively for MapLibre (`overlay-points.ts`) and so sit outside Svelte's component tree
-   — there is nothing for a scoped rule to attach to. They live in the layout's stylesheet
-   rather than in `ImagePane.svelte` because **both** panes draw them: a Control Point has a
-   half on the Map Image and a half on the Base Map, and rules shipped with one component
-   would be missing on a route that mounts only the other.
-
-   Colours come from daisyUI's theme variables rather than being literals, so a Control Point
-   follows the flavour the user chose (ADR-0016, ADR-0020) instead of staying bright red in a
-   dark theme. */
 
 .pane-overlay-point {
 	box-sizing: border-box;
 	width: 17px;
 	height: 17px;
 	border-radius: 9999px;
-	/* Clicks reach the map underneath. A reference or reported point is a label, not a target;
-	   a Control Point overrides this, because it is one. */
 	pointer-events: none;
 }
 
@@ -131,23 +20,6 @@
 	box-shadow: 0 0 0 1px oklch(1 0 0 / 0.85);
 }
 
-/* A Control Point: a numbered, grabbable, focusable target. The ordinal is *inside* it as
-   text, because ADR-0022 wants "look at point 7" to work over a student's shoulder — which a
-   tooltip does not serve.
-
-   **This rule does not draw the shape.** The needle is `packages/core/src/render/needle.ts`, and
-   `overlay-points.ts` puts it in the element as an `<svg>`; an Annotation's Pin on the Base Map is
-   the same paths rasterised into a signed distance field. Held apart, the two drifted three times —
-   matched by proportion they came out at different widths, matched by width at different lengths —
-   because a CSS box and an SDF have no shared number to be wrong about. What is left here is what
-   the drawing cannot know: the theme's colours, the states, and the cursor.
-
-   The element sizes itself around the `<svg>`, whose width and height come from `needle.ts`, so
-   nothing here says how big a Control Point is either.
-
-   ⚠ **The element's own box is never transformed.** `transform` is what MapLibre writes a
-   `Marker`'s position into, so anything this rule wrote there would move the handle away from the
-   point it names — the failure `.pane-overlay-point-annotation-vertex` records at length. */
 .pane-overlay-point-control-point {
 	pointer-events: auto;
 	display: block;
@@ -155,22 +27,12 @@
 	height: max-content;
 	padding: 0;
 	border: none;
-	/* Square, so the focus ring is a box around the needle rather than the base rule's circle. */
 	border-radius: 0;
 	background: none;
-	/* No strut under the drawing: an inline `<svg>` sits on a text baseline, and the descender space
-	   below it would be counted into the element MapLibre anchors by its bottom edge — which is the
-	   foot of the needle, and therefore the coordinate. */
 	line-height: 0;
 	cursor: grab;
 }
 
-/* The needle's white hairline, drawn under the filled paths.
-
-   `non-scaling-stroke` is what makes it one pixel at every size rather than one grid unit: the same
-   claim `NEEDLE_HALO_PIXELS` makes for the Pin's `icon-halo-width`, which is also in screen pixels.
-   Stroked at twice the width, because half of every stroke is inside the shape and covered by the
-   fill on top of it. */
 .pane-overlay-point-control-point .needle-halo {
 	fill: none;
 	stroke: oklch(1 0 0);
@@ -178,18 +40,13 @@
 	vector-effect: non-scaling-stroke;
 }
 
-/* The mark itself, in the theme's colour — which is the one thing a Pin does differently: it takes
-   the scholar's `marker-color`, and a Control Point is the application's own mark. */
 .pane-overlay-point-control-point .needle-body {
 	fill: var(--color-primary);
 	stroke: none;
 }
 
-/* The ordinal, centred on the head by `needle.ts` rather than by a number here. */
 .pane-overlay-point-control-point .needle-ordinal {
 	fill: var(--color-primary-content);
-	/* In grid units, so it scales with the drawing: 8 of 24 is 11 px at the size the needle is drawn
-	   at, which is a two-digit ordinal comfortably inside a 13-unit head. */
 	font-size: 8px;
 	font-weight: 700;
 	font-family: inherit;
@@ -200,20 +57,11 @@
 	cursor: grabbing;
 }
 
-/* Focus is the keyboard path's only feedback about which point the arrow keys will move, so it
-   is deliberately heavier than the hover state and is never suppressed. */
 .pane-overlay-point-control-point:focus-visible {
 	outline: 3px solid var(--color-accent);
 	outline-offset: 2px;
 }
 
-/* The Resource Mask's handles, on the image pane only — the mask is in image pixel space, so it
-   has no meaning on the Base Map.
-
-   Square rather than round, and a different colour from a Control Point, because the two are
-   editable at the same time on the same pane and confusing them means dragging the outline when you
-   meant to move a point. Focusable and arrow-key movable for the same reason Control Points are:
-   they are the same kind of object to a keyboard. */
 .pane-overlay-point-mask-vertex,
 .pane-overlay-point-mask-edge {
 	pointer-events: auto;
@@ -225,7 +73,6 @@
 	box-shadow: 0 1px 3px oklch(0 0 0 / 0.4);
 }
 
-/* A corner is dragged, so it says so. */
 .pane-overlay-point-mask-vertex {
 	width: 16px;
 	height: 16px;
@@ -238,14 +85,6 @@
 	cursor: grabbing;
 }
 
-/* The midpoint of an edge, carrying a `+`: activating it adds a vertex there. Smaller and hollow,
-   so it reads as "somewhere a vertex could be" rather than as one that is already there.
-
-   **`cursor: pointer`, not `grab`.** This handle is deliberately not draggable — `paint` calls
-   `setDraggable(false)` for it, because a handle that both inserted and moved would make "I nudged
-   it" and "I added one" the same gesture. It carried `grab` and `grabbing`, which advertised the
-   one gesture it refuses: the user presses, pulls, nothing happens, and the handle reads as broken
-   rather than as a button. */
 .pane-overlay-point-mask-edge {
 	width: 14px;
 	height: 14px;
@@ -269,27 +108,6 @@
 	outline-offset: 2px;
 }
 
-/* ─── An Annotation's vertices ────────────────────────────────────────────────────────────
-   The Resource Mask's corner affordance, on the Base Map, and diamond rather than square or round
-   so that a third editable kind on a map is still tellable apart at a glance. A vertex is focusable
-   and arrow-key movable for the reason the other two are: it is the same object to a keyboard,
-   which is why `terra-draw` — which edits inside a WebGL layer and cannot be focused at all — is
-   not what draws these.
-
-   There is one kind here and not two: `overlay-points.ts` records why no `annotation-edge` exists,
-   and a style for a kind nothing emits is the same promise the type stopped making.
-
-   ⚠ **The diamond is drawn by a pseudo-element, and the handle's own box is never rotated.**
-   CSS's individual `rotate` property composes *before* `transform`, and `transform` is what
-   MapLibre writes a `Marker`'s position into — so `rotate: 45deg` here rotated that translation
-   with it, and the further a vertex was from the top-left of the pane the further its handle was
-   drawn from the vertex it names. Measured at 334 px when it should have been 668: over the
-   sidebar, on top of the Annotation list.
-
-   It survived the browser suite because **a drag begins wherever the handle is**: the specs took
-   the element's own bounding box, dragged that, and the coordinate the app wrote was correct. So a
-   containment check is not enough either — `editor-annotations.e2e.ts` compares the handle's box
-   against `map.project()` of the coordinate on disk, which is the claim that was false. */
 .pane-overlay-point-annotation-vertex {
 	pointer-events: auto;
 	position: relative;
@@ -298,12 +116,9 @@
 	padding: 0;
 	line-height: 1;
 	cursor: grab;
-	/* Big enough to hold the rotated square below: the element is the hit box and the focus ring, so
-	   the diamond has to fit *inside* it or its four tips are neither clickable nor ringed. */
 	width: 21px;
 	height: 21px;
 	border: none;
-	/* Square, so the focus ring is a box around the diamond rather than the base rule's circle. */
 	border-radius: 0;
 	background: none;
 }
@@ -311,11 +126,7 @@
 .pane-overlay-point-annotation-vertex::before {
 	content: '';
 	position: absolute;
-	/* Inset by half of what turning a square 45° adds to its bounding box, so the tips land on the
-	   handle's own edges. */
 	inset: 3.1px;
-	/* Behind the ordinal and in front of the map: the marker's own `transform` makes this element a
-	   stacking context, so a negative index cannot fall through to the canvas. */
 	z-index: -1;
 	rotate: 45deg;
 	border: 2px solid var(--color-base-100);
@@ -333,17 +144,12 @@
 	outline-offset: 3px;
 }
 
-/* A vertex of a shape still being placed. Not operable — `pointer-events` stays `none` from the
-   base rule — because the next click on it is the click that places the next vertex. */
 .pane-overlay-point-annotation-draft {
 	border: 2px solid var(--color-primary);
 	background: var(--color-base-100);
 	box-shadow: 0 0 0 1px oklch(0 0 0 / 0.35);
 }
 
-/* Selecting either half highlights its partner in the opposite pane (ADR-0022 contract 4).
-   This is the rule that makes twenty points comprehensible, so it has to read at a glance and
-   not only on close inspection. */
 .pane-overlay-point-selected {
 	background: var(--color-secondary);
 	color: var(--color-secondary-content);
@@ -353,9 +159,6 @@
 	z-index: 2;
 }
 
-/* A Control Point wears its highlight through its theme colour. Its own box is transparent around
-   an `<svg>`, so the generic rule would fill a square; a wider SVG halo would change the target the
-   scholar is placing. */
 .pane-overlay-point-control-point.pane-overlay-point-selected {
 	background: none;
 	box-shadow: none;
@@ -369,10 +172,6 @@
 	fill: var(--color-secondary-content);
 }
 
-/* The half that has been clicked but not yet matched. Dashed and hollow, because "the tool is
-   waiting for your second click" has to be visible without being mistaken for a finished pair
-   (ADR-0022 contract 1) — without it the user does not know the app is waiting, and the second
-   click lands somewhere arbitrary. */
 .pane-overlay-point-pending {
 	border: 2px dashed var(--color-warning);
 	background: var(--color-base-100);
@@ -380,10 +179,6 @@
 	animation: pane-overlay-point-waiting 1.4s ease-in-out infinite;
 }
 
-/* The same waiting state on a needle: hollow, outlined in the warning colour, and pulsing from the
-   rule above. **Hollow rather than dashed** — the drawing is a filled silhouette, and a dash pattern
-   run around a head and a shaft as two separate paths breaks at the join. Hollow plus the pulse is
-   still "the tool is waiting for your second click" and is still not a finished pair. */
 .pane-overlay-point-control-point.pane-overlay-point-pending {
 	border: none;
 	background: none;
@@ -402,7 +197,6 @@
 	}
 }
 
-/* Motion is decoration here; the dashed hollow ring already carries the meaning. */
 @media (prefers-reduced-motion: reduce) {
 	.pane-overlay-point-pending {
 		animation: none;

@@ -1,39 +1,10 @@
-# Deploy the editor to GitHub Pages.
-#
-# ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
-# │ THIS FILE IS THE FORK STORY: an instructor forks this repository and deploys it.                                          │
-# └───────────────────────────────────────────────────────────────────────────────────────────────┘
-#
-# "An instructor forks the tool and hosts their own instance on free static hosting" was designed for
-# throughout — `paths.relative: true`, no secrets, the Base Map catalog as a single editable module —
-# and then had no way to happen, because nothing here built the app and handed it to a host. A fork's
-# Pages default is *deploy from a branch*, which serves the repository root: `README.md` and
-# `package.json`, not an application. The forker's first experience of a tool built to be forked was a
-# directory listing.
-#
-# Deploying `apps/editor/build` — not the viewer. The viewer is not a site anyone visits; it is bytes
-# the editor writes into a user's Workspace when they publish (ADR-0045), and it reaches a reader from
-# *their* host. `pnpm -r build` produces it and `stage:viewer` puts it inside the editor, so it ships
-# here as cargo rather than as a deployment.
-#
-# ───────────────────────────────────────────────────────────────────────────────────────────────
-# WHAT THIS DOES NOT DO
-#
-# It does not re-run the suite. `ci.yml` runs on every push, including this one, and duplicating
-# twenty minutes of browser tests here would mean either a deploy that waits on them twice or two
-# sources of truth about whether the commit is good. A push that fails CI and deploys anyway is the
-# accepted trade: this is a static site with no migration and no data, and the remedy is the next
-# push.
-#
-# It does run `check-nojekyll.mjs`, because that one is about *this artifact* and nothing else can see
-# it — the check needs built output, so `pnpm lint` cannot host it.
+# Deploys the editor; the viewer ships inside it as the bytes a Published Site is written from.
 
 name: Pages
 
 on:
   push:
     branches: [main]
-  # So a forker can deploy without inventing a commit, and so a failed deploy can be retried.
   workflow_dispatch:
 
 permissions:
@@ -41,8 +12,6 @@ permissions:
   pages: write
   id-token: write
 
-# One deploy at a time, and no cancelling a running one: a half-uploaded artifact is a broken site,
-# and unlike CI the thing being replaced here is live.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -56,10 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Fails by name when the repository's Pages source is still "Deploy from a branch" rather than
-      # "GitHub Actions" — the setting a fork does not inherit, and the one thing a forker must click.
-      # Without this step the run goes green and `deploy-pages` uploads into a void, which is the
-      # worst version of this failure: a successful workflow and a site serving raw source.
+      # Fails by name when a fork's Pages source is not yet "GitHub Actions".
       - uses: actions/configure-pages@v6
 
       - uses: pnpm/action-setup@v4
@@ -71,77 +37,30 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # `build:deploy`, not `pnpm -r build`. The deployment build reads a filtered source tree so that
-      # a public instance ships neither the `/image-pane` developer harness nor its ~1 MB of test
-      # fixtures — and it has to be a *build-time* exclusion, because the service worker's precache
-      # manifest is written from the routes that exist. See scripts/stage-deploy-build.mjs.
       - run: pnpm build:deploy
-        # Upstream only, so a fork's deployment reports nothing to this Umami instance.
+        # Upstream only: a fork reports nothing to this Umami instance.
         env:
           VITE_UMAMI_WEBSITE_ID: ${{ github.repository == 'artshumrc/ballastella' && 'c595dc31-6ffc-417e-8efb-c75b5426f3c7' || '' }}
           VITE_UMAMI_SCRIPT_URL: ${{ github.repository == 'artshumrc/ballastella' && 'https://stats.digitalhumanities.fas.harvard.edu/darth-stats.js' || '' }}
 
-      # ADR-0045: one build serves a domain root and a project subpath, so no absolute asset paths.
-      # A fork is deployed at `user.github.io/<repo>/`, which is the subpath case — so on a fork this
-      # is not a hypothetical, it is the only case. Checked against the artifact about to be uploaded.
       - name: Built output references assets relatively
-        run: |
-          set +e
-          matches=$(grep -rEn '(src|href)="/[^"]*"' apps/editor/build)
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            echo "$matches"
-            echo "::error::absolute asset paths in the artifact — see ADR-0045 (paths.relative)"
-            exit 1
-          elif [ "$status" -ne 1 ]; then
-            echo "::error::grep exited $status — the ADR-0045 check could not run"
-            exit 1
-          fi
-          echo "OK: no absolute asset paths"
+        run: node scripts/check-relative-assets.mjs apps/editor/build
 
       - name: Jekyll is off, here and in every site this build publishes
         run: node scripts/check-nojekyll.mjs
 
-      # The exclusion above is invisible from a developer's loop — the ordinary build still holds both,
-      # and every test drives them — so the ways it silently stops happening are all live: a dropped
-      # env var, a SvelteKit rename, this step edited back to `pnpm -r build`. Each produces a
-      # successful build of the wrong artifact, which is why this reads the output.
       - name: The artifact carries the app and no developer harness
         run: node scripts/check-deploy-artifact.mjs
 
-      # ─────────────────────────────────────────────────────────────────────────────────────────
-      # ADVISORY, NOT A GATE — a deliberate choice, recorded because the opposite is defensible.
-      #
-      # `pnpm check:deployment` fails today by design: the Base Map reads an archive this deployment
-      # does not control, an explicit human decision of 2026-08-07 taken for want of a hosting budget
-      # (ADR-0025). Gating on it would mean the workflow written to unblock forking cannot deploy
-      # anything until that budget exists.
-      #
-      # So it runs and reports instead. `::warning::` puts the sentence in the run summary of every
-      # deploy, which is the same discipline `scripts/check-deployment-runs.test.mjs` applies in
-      # `pnpm test` — the risk is stated where somebody is already looking, rather than left in an ADR.
-      # **Do not "fix" this by deleting the step once the archive is provisioned**: the check will pass
-      # on its own, and the step then quietly asserts that it still does.
-      #
-      # `continue-on-error` is not used, because the `if !` makes the step succeed by construction;
-      # adding it too would suggest a second way for this to fail the job, and there is none.
+      # Advisory by design (ADR-0025): it fails while the Base Map archive is borrowed. Keep the step
+      # once the archive is provisioned; it then asserts that it still passes.
       - name: Deployment configuration (advisory)
         run: |
-          # One line: a workflow-command annotation is terminated by the newline, so a shell
-          # line-continuation here would fold the next line's indentation into the message.
+          # Annotations end at a newline, so each message stays on one line.
           if ! pnpm check:deployment; then
             echo "::warning title=Borrowed Base Map archive::This deployment's Base Map reads an archive it does not control. It works, and it rests on somebody else's bandwidth with no promise to this site. See docs/hosting.md and ADR-0025."
           fi
-          # The lookup cannot hang off the `if` above: that half warns and exits 0 by design
-          # (ADR-0029), so an exit-code-conditioned annotation is structurally unreachable for it —
-          # masked today by the Base Map's failure, and silent from the day the archive is
-          # provisioned, while the lookup is still borrowed.
-          #
-          # So it asks the check instead. The marker is printed only when the configured service is
-          # one this deployment does not run, which keeps the annotation a fact rather than a claim:
-          # a fork that provisions its own geocoder gets no annotation, and edits no workflow to get
-          # that — `packages/core/src/places/service.ts` remains the one file a repoint touches.
+          # The lookup check exits 0 by design (ADR-0029), so it is asked for its marker instead.
           if node scripts/check-place-service.mjs --deployment | grep -qF '::borrowed-lookup-service::'; then
             echo "::warning title=Borrowed place lookup service::This deployment's place search asks a geocoder it does not run. The use is within that service's published policy, and it is somebody else's hardware with no promise to this site. Unlike the archive above this does not fail the check: repointing it means running a planet-scale geocoder. See docs/hosting.md and ADR-0029."
           fi

@@ -1,32 +1,25 @@
 <script lang="ts">
-	// A development surface for the image pane, over a committed fixture pyramid.
-	//
-	// This is deliberately not a user-facing route: the pane here shows a fixture, not the
-	// user's own Map Image. It exists so the synthetic projection can be exercised — and
-	// asserted in a real browser — before the storage layer, the tiler, or Control Points
-	// exist. `MapImagePane.svelte` puts the same pane over a Map Image read from the ProjectStore.
-
 	import { asset } from '$app/paths';
-	import { createImagePane, type ImagePane, type ResourcePoint } from '@ballastella/core';
+	import {
+		createImagePane,
+		messageOf,
+		type ImagePane,
+		type ResourcePoint
+	} from '@ballastella/core';
 	import { onMount } from 'svelte';
 
 	import ImagePaneView, { type PaneOverlayPoint } from '$lib/image-pane/ImagePane.svelte';
 
 	const PANE_ID = 'floride-1657';
-
 	let pane: ImagePane | undefined = $state.raw();
 	let failure: string | undefined = $state();
 	let paneView: ReturnType<typeof ImagePaneView> | undefined = $state.raw();
-
 	let mapZoom = $state(0);
 	let pointer: ResourcePoint | undefined = $state();
 	let reported: ResourcePoint | undefined = $state();
 	let tilesLoaded = $state(false);
 	let ready = $state(false);
 
-	// Points whose image pixel is known in advance, so that the pane's drawing and its coordinate
-	// reporting can be checked against each other. Not Control Points and not registration points
-	// — CONTEXT.md rules out "register" for an Alignment and "marker" for a Control Point.
 	const referencePoints: { point: ResourcePoint; label: string }[] = $derived(
 		pane
 			? [
@@ -39,6 +32,8 @@
 			: []
 	);
 
+	const pixel = (point: ResourcePoint) => `${Math.round(point.x)}, ${Math.round(point.y)}`;
+
 	const overlayPoints: PaneOverlayPoint[] = $derived([
 		...referencePoints.map(({ point, label }): PaneOverlayPoint => ({
 			point,
@@ -49,14 +44,12 @@
 			? [
 					{
 						point: reported,
-						label: `Reported pixel ${Math.round(reported.x)}, ${Math.round(reported.y)}`,
+						label: `Reported pixel ${pixel(reported)}`,
 						kind: 'reported' as const
 					}
 				]
 			: [])
 	]);
-
-	const pixel = (point: ResourcePoint) => `${Math.round(point.x)}, ${Math.round(point.y)}`;
 
 	const status = $derived(
 		failure
@@ -67,9 +60,6 @@
 	);
 
 	onMount(async () => {
-		// ADR-0004: `info.json` carries the unset.invalid placeholder id, and the base the tiles
-		// are really served from is resolved here, at load time. `asset()` keeps that path
-		// relative, because a site's address is unknown at build time.
 		const infoUrl = new URL(asset('/fixtures/images/floride-1657/info.json'), location.href);
 
 		try {
@@ -81,9 +71,7 @@
 
 			pane = createImagePane(await response.json(), infoUrl.href.replace(/\/info\.json$/, ''));
 		} catch (error) {
-			failure =
-				`The fixture pyramid at ${infoUrl.href} could not be read: ` +
-				`${error instanceof Error ? error.message : String(error)}`;
+			failure = `The fixture pyramid at ${infoUrl.href} could not be read: ${messageOf(error)}`;
 		}
 	});
 </script>

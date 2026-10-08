@@ -8,7 +8,6 @@ import {
 	type PathClass
 } from './synchronization-paths.js';
 
-/** The Project directories the fixtures below are classified against. */
 const PROJECTS = new Set(['amsterdam-1625', 'leiden-1640']);
 
 describe('classifyPath', () => {
@@ -41,11 +40,9 @@ describe('classifyPath', () => {
 		['outside-ballastella', 'utrecht-1700/project.json', 'a Project directory nobody recognises']
 	];
 
-	for (const [expected, path, what] of cases) {
-		it(`calls ${path} ${expected} — ${what}`, () => {
-			expect(classifyPath(path, PROJECTS)).toBe(expected);
-		});
-	}
+	it.each(cases)('calls it %s: %s, %s', (expected, path) => {
+		expect(classifyPath(path, PROJECTS)).toBe(expected);
+	});
 });
 
 describe('projectDirectories', () => {
@@ -86,17 +83,10 @@ describe('recognisedProjectDirectories', () => {
 		['on the Remote', 'leiden-1640'],
 		['in the Baseline', 'utrecht-1700']
 	] as const) {
-		it(`keeps a directory recognised only ${side} source-owned`, () => {
-			const projects = recognisedProjectDirectories(inventories);
-			expect(classifyPath(`${directory}/project.json`, projects)).toBe('source');
-		});
-
-		// A directory whose `project.json` has gone is still ours to finish deleting: every path below
-		// it stays in scope until synchronization establishes that the whole directory is gone
-		// everywhere.
-		it(`keeps every path below a directory recognised only ${side} source-owned`, () => {
+		it(`keeps a directory recognised only ${side}, and every path below it, source-owned`, () => {
 			const projects = recognisedProjectDirectories(inventories);
 			for (const path of [
+				`${directory}/project.json`,
 				`${directory}/annotations/notes.geojson`,
 				`${directory}/deeper/still/anything.txt`
 			]) {
@@ -111,7 +101,6 @@ describe('recognisedProjectDirectories', () => {
 });
 
 describe('classifyInventory', () => {
-	/** A tree an editor version older than this one wrote, with one Project in it. */
 	const tree = [
 		{ path: '_app/immutable/entry/app.old.js', sha: 'a1' },
 		{ path: 'index.html', sha: 'a2' },
@@ -125,28 +114,21 @@ describe('classifyInventory', () => {
 	];
 	const inventory = classifyInventory(tree, projectDirectories(tree.map((entry) => entry.path)));
 
-	// What an Update compares and what it may transfer. A different editor version's `_app` bundle is
-	// not inbound change, and the tiles that make a Project work offline are.
-	it('compares authored files, Offline Copies and cached Base Map tiles as source', () => {
-		expect(inventory.source.map((entry) => entry.path)).toEqual([
+	it('sorts source, site-owned output and outside files into their own buckets', () => {
+		const paths = (entries: readonly { path: string }[]) => entries.map((entry) => entry.path);
+		expect(paths(inventory.source)).toEqual([
 			'base-map/tiles/9f8/12/2094/1330.mvt',
 			'amsterdam-1625/project.json',
 			'images/map-1/info.json',
 			'alignments/map-1.json'
 		]);
-	});
-
-	it('separates site-owned output from the source comparison', () => {
-		expect(inventory.publishedOutput.map((entry) => entry.path)).toEqual([
+		expect(paths(inventory.publishedOutput)).toEqual([
 			'_app/immutable/entry/app.old.js',
 			'index.html',
 			'ballastella-site.json',
 			'base-map/fonts/Noto Sans Regular/0-255.pbf'
 		]);
-	});
-
-	it('leaves repository files outside Ballastella in their own bucket', () => {
-		expect(inventory.outside.map((entry) => entry.path)).toEqual(['README.md']);
+		expect(paths(inventory.outside)).toEqual(['README.md']);
 	});
 
 	it('carries each entry through whole, so a caller keeps the evidence it arrived with', () => {

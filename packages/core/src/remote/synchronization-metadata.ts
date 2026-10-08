@@ -1,96 +1,26 @@
-// What this installation knows about one Workspace's Remote: the relationship, and the Synchronization
-// Baseline that says what the two sides last shared (ADR-0033).
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// INSTALLATION-LOCAL, AND NOT IN THE WORKSPACE
-//
-// The Remote relationship, the Synchronization Baseline and the local-change index are all durable
-// installation-local metadata, keyed by stable Workspace identity and backing. Both records say what
-// **this machine** believes about a Remote, and a record that travelled — into a Backup, into a
-// Project Bundle, up to the Remote and back down into a fork — would be somebody else's belief
-// arriving as this machine's evidence. That is the whole reason no document in the Workspace names
-// the Remote: such a file is inside the Remote's tree, so a fork would carry a claim on the
-// repository it was forked *from*, and an author who opened the fork would sync to the original.
-//
-// It is not `localStorage` either. A Workspace of 40 000 files is a Baseline of a couple of megabytes
-// against an origin-wide 5 MB budget already shared with the write-ahead journal, so a record kept
-// there could fail to be stored *after* a transfer had already reached GitHub. The seam below is a
-// structured-clone record store — IndexedDB in the app — so a complete path map is an ordinary write
-// rather than a gamble.
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// EVERY FAILURE ANSWERS "CANNOT TELL"
-//
-// A store that will not answer, a record from a build that spells this differently, a truncated one,
-// **a record naming a different repository or branch**: all of them read as no valid Baseline, which
-// is `Cannot tell`: that is the Remote Status whenever no valid Baseline exists, because evidence is
-// absent, unreadable, for another Remote, or could not be stored. It is the only direction that cannot
-// turn a storage problem into an overwrite, and it is a determination the consumers of this module
-// have to handle anyway.
-//
-// The mismatch case is why a Baseline names its Remote rather than only its Workspace. A Workspace can
-// be re-bound with the Baseline untouched, and a self-validating record answers that without anything
-// having to remember to clear it — and survives a re-bind and a re-bind back, which clearing would
-// not.
-//
-// {@link SynchronizationMetadata.writeBaseline} answers *whether it was kept* rather than throwing:
-// if durable Baseline storage fails after the Remote has been written, the transfer succeeded and the
-// status is now Cannot tell — never the transfer reported as failed, and never stale evidence
-// retained.
+import { isRecord } from '../store/project-store.js';
+import { isSameRemote, normaliseRemoteIdentity, type RemoteRepository } from './remote-binding.js';
 
-import { isSameRemote, normaliseRemoteIdentity } from './remote-binding.js';
-import type { RemoteRepository } from './send-to-remote.js';
-
-/**
- * The durable record store this module is kept in.
- *
- * A seam rather than IndexedDB directly, so that the failure modes the module exists to answer —
- * a store that throws, a record written by another build, a truncated path map — are reachable from a
- * test without a browser. Values are structured-clone data, not strings: a `Map` of tens of thousands
- * of paths is what this stores, and stringifying it into `localStorage` is what overran the origin's
- * budget.
- */
 export interface MetadataStorage {
 	get(key: string): Promise<unknown>;
 	put(key: string, value: unknown): Promise<void>;
 	delete(key: string): Promise<void>;
-	/** Every key currently held, for the repository-to-Workspace reverse lookup an Open builds on. */
 	keys(): Promise<readonly string[]>;
 }
 
-/** Every key this module owns begins with this. */
-export const SYNCHRONIZATION_KEY_PREFIX = 'synchronization/';
-
-/**
- * The stored shape this build writes and understands.
- *
- * `1` is not this record: it numbered an earlier `localStorage` store of the same claim, so the
- * sequence starts at `2` and a version number is never ambiguous about which store it describes.
- */
+const SYNCHRONIZATION_KEY_PREFIX = 'synchronization/';
 export const SYNCHRONIZATION_FORMAT_VERSION = 2;
 
-/**
- * The one Remote a Workspace has, or has not.
- *
- * A Workspace has zero or one active Remote. There is deliberately no API here that could
- * represent a second one — {@link SynchronizationMetadata.bindRemote} replaces, and
- * {@link SynchronizationMetadata.clearRemote} clears.
- */
 export type RemoteRelationship = RemoteRepository;
 
-/** What the two sides last shared: the Remote it is a claim about, and the tree it held. */
 export interface SynchronizationBaseline {
 	readonly remote: RemoteRelationship;
-	/** The commit that state was observed at, so the record says *which* transfer established it. */
 	readonly commit: string;
-	/** Every source path in that commit, and the blob SHA it pointed at. */
 	readonly files: ReadonlyMap<string, string>;
 }
 
-/** The stored form of a relationship, so a future field is an addition rather than a re-encoding. */
 interface StoredRelationship {
 	readonly formatVersion: number;
-	/** ISO 8601, for whoever is reading the database with the devtools open. */
 	readonly at: string;
 	readonly owner: string;
 	readonly repository: string;
@@ -102,16 +32,6 @@ interface StoredBaseline extends StoredRelationship {
 	readonly files: ReadonlyMap<string, string>;
 }
 
-/**
- * The installation-local synchronization metadata of **one** Workspace.
- *
- * Bound to a Workspace key at construction: one click switches Workspaces, and metadata keyed by
- * nothing else would let what this machine knows about one Remote stand as evidence about another.
- * The key carries the backing as well as the name — `opfs:My
- * Workspace` and `folder:maps` — so a browser-backed Workspace and a chosen folder that happen to
- * share a name are two subjects, and renaming the display text of one does not redirect the other's
- * evidence.
- */
 export class SynchronizationMetadata {
 	readonly #storage: MetadataStorage;
 	readonly #remoteKey: string;
@@ -125,130 +45,45 @@ export class SynchronizationMetadata {
 		this.#withdrawalKey = withdrawalKey(workspaceKey);
 	}
 
-	/** The Remote this Workspace is bound to, or `null` for bound to nothing. Never throws. */
 	async readRemote(): Promise<RemoteRelationship | null> {
-		const stored = await this.#read(this.#remoteKey);
-		return stored === null ? null : decodeRelationship(stored);
+		return decodeIdentity(await this.#read(this.#remoteKey));
 	}
 
-	/**
-	 * Bind this Workspace to `remote`, replacing whatever relationship it had.
-	 *
-	 * @returns whether it was kept. A store that refuses leaves the Workspace unbound rather than
-	 *   half-bound, which is the direction a caller can report and recover from.
-	 */
-	async bindRemote(remote: RemoteRelationship): Promise<boolean> {
-		const stored: StoredRelationship = { ...versionStamp(), ...identityOf(remote) };
-		try {
-			await this.#storage.put(this.#remoteKey, stored);
-			return true;
-		} catch {
-			// Not left half-written: a relationship the reader would answer `null` about anyway is worse
-			// than none, because it is one nothing will ever try to write again.
-			await this.clearRemote();
-			return false;
-		}
+	bindRemote(remote: RemoteRelationship): Promise<boolean> {
+		return this.#put(this.#remoteKey, { ...versionStamp(), ...identityOf(remote) });
 	}
 
-	/**
-	 * Unbind this Workspace. Idempotent.
-	 *
-	 * ⚠ **The Baseline is deliberately left alone**: it names the Remote it is a claim about, so it is
-	 * answered `null` while the Workspace is bound elsewhere and is still good evidence if the same
-	 * Remote is bound again. Clearing it here would throw away a record that survives a re-bind and a
-	 * re-bind back.
-	 */
 	async clearRemote(): Promise<void> {
 		await this.#delete(this.#remoteKey);
 	}
 
-	/**
-	 * What this Workspace and `remote` last shared, or `null` for `Cannot tell`.
-	 *
-	 * ⚠ **The Remote is an argument because the answer depends on it.** A record describing another
-	 * repository, or another branch of the same one, is a claim about somewhere else and is answered
-	 * `null` — the same answer absence and corruption get, because those three license the same
-	 * caution.
-	 */
 	async readBaseline(remote: RemoteRelationship): Promise<SynchronizationBaseline | null> {
-		const stored = await this.#read(this.#baselineKey);
-		return stored === null ? null : decodeBaseline(stored, remote);
+		return decodeBaseline(await this.#read(this.#baselineKey), remote);
 	}
 
-	/**
-	 * Record what the two sides now share.
-	 *
-	 * @returns whether it was kept. `false` is a durable store that refused, and the caller's answer
-	 *   to it is `Cannot tell` — never a failure of the operation that had already succeeded.
-	 */
-	async writeBaseline(baseline: SynchronizationBaseline): Promise<boolean> {
+	writeBaseline(baseline: SynchronizationBaseline): Promise<boolean> {
 		const stored: StoredBaseline = {
 			...versionStamp(),
 			...identityOf(baseline.remote),
 			commit: baseline.commit,
 			files: new Map(baseline.files)
 		};
-		try {
-			await this.#storage.put(this.#baselineKey, stored);
-			return true;
-		} catch {
-			// ⚠ **The record already there is thrown away, and that is the point of catching at all.** A
-			// refused write leaves the *previous* transfer's map in place, and the reader above cannot
-			// tell it from a record of the transfer that has just happened — so every path this transfer
-			// legitimately changed would come back as somebody else's work. Removing it degrades the
-			// answer to `Cannot tell`, which every consumer handles.
-			await this.clearBaseline();
-			return false;
-		}
+		return this.#put(this.#baselineKey, stored);
 	}
 
-	/** Forget the Baseline. Idempotent. */
 	async clearBaseline(): Promise<void> {
 		await this.#delete(this.#baselineKey);
 	}
 
-	/**
-	 * Whether the author has asked for `remote`'s Published Site to come down (ADR-0045).
-	 *
-	 * ⚠ **A request the next Sync carries out, and never a claim about which files exist.** Share
-	 * Links stay observed from the bytes; what is recorded here is the one thing the bytes cannot
-	 * say. A Remote carrying a viewer set the Workspace does not is two different situations — an
-	 * author who withdrew, and an author who has just got the Workspace from a Remote that has a site
-	 * — and a send that could not tell them apart deleted the site in both.
-	 *
-	 * ⚠ **Per installation, as the Baseline is.** It records what *this machine* was asked to do. What
-	 * is genuinely shared between machines is the repository's own Pages setting, which
-	 * `disableRemotePages` turns off at the moment of the asking.
-	 *
-	 * The Remote is an argument for {@link readBaseline}'s reason: a request recorded about another
-	 * repository is a request about somewhere else, and acting on it here would take down a site
-	 * nobody asked about.
-	 */
 	async readWithdrawal(remote: RemoteRelationship): Promise<boolean> {
-		const stored = await this.#read(this.#withdrawalKey);
-		const identity = stored === null ? null : decodeIdentity(stored);
+		const identity = decodeIdentity(await this.#read(this.#withdrawalKey));
 		return identity !== null && isSameRemote(identity, remote);
 	}
 
-	/**
-	 * Record that `remote`'s site is to be taken out of the tree by the next Sync.
-	 *
-	 * @returns whether it was kept. `false` is a store that refused, and the caller's answer to it is
-	 *   that the site files are out of the Workspace but the Remote's copy will be rebuilt rather than
-	 *   removed — which is a sentence to say, never a silent half-withdrawal.
-	 */
-	async requestWithdrawal(remote: RemoteRelationship): Promise<boolean> {
-		const stored: StoredRelationship = { ...versionStamp(), ...identityOf(remote) };
-		try {
-			await this.#storage.put(this.#withdrawalKey, stored);
-			return true;
-		} catch {
-			await this.clearWithdrawal();
-			return false;
-		}
+	requestWithdrawal(remote: RemoteRelationship): Promise<boolean> {
+		return this.#put(this.#withdrawalKey, { ...versionStamp(), ...identityOf(remote) });
 	}
 
-	/** Forget the request, which is what the Sync that carried it out does. Idempotent. */
 	async clearWithdrawal(): Promise<void> {
 		await this.#delete(this.#withdrawalKey);
 	}
@@ -257,42 +92,45 @@ export class SynchronizationMetadata {
 		try {
 			return (await this.#storage.get(key)) ?? null;
 		} catch {
-			// A store that will not answer is not evidence of an unbound Workspace or an empty Remote; it
-			// is evidence of nothing.
 			return null;
 		}
 	}
 
-	async #delete(key: string): Promise<void> {
+	async #put(key: string, stored: StoredRelationship): Promise<boolean> {
 		try {
-			await this.#storage.delete(key);
+			await this.#storage.put(key, stored);
+			return true;
 		} catch {
-			// Nothing a caller can do, and nothing is lost: an unremovable record is one the readers above
-			// still validate before anybody acts on it.
+			await this.#delete(key);
+			return false;
 		}
+	}
+
+	#delete(key: string): Promise<void> {
+		return deleteRecord(this.#storage, key);
 	}
 }
 
-/** The key one Workspace's relationship is filed under. */
+export async function deleteRecord(storage: MetadataStorage, key: string): Promise<void> {
+	try {
+		await storage.delete(key);
+	} catch {
+		// An unremovable record is still validated before anyone acts on it.
+	}
+}
+
+export const synchronizationKey = (workspaceKey: string, record: string): string =>
+	`${SYNCHRONIZATION_KEY_PREFIX}${encodeURIComponent(workspaceKey)}/${record}`;
+
 export const remoteRelationshipKey = (workspaceKey: string): string =>
-	`${SYNCHRONIZATION_KEY_PREFIX}${encodeURIComponent(workspaceKey)}/remote`;
+	synchronizationKey(workspaceKey, 'remote');
 
-/** The key one Workspace's Baseline is filed under. */
 export const baselineKey = (workspaceKey: string): string =>
-	`${SYNCHRONIZATION_KEY_PREFIX}${encodeURIComponent(workspaceKey)}/baseline`;
+	synchronizationKey(workspaceKey, 'baseline');
 
-/** The key one Workspace's pending Share Links withdrawal is filed under. */
-export const withdrawalKey = (workspaceKey: string): string =>
-	`${SYNCHRONIZATION_KEY_PREFIX}${encodeURIComponent(workspaceKey)}/withdrawal`;
+const withdrawalKey = (workspaceKey: string): string =>
+	synchronizationKey(workspaceKey, 'withdrawal');
 
-/**
- * Throw away the synchronization metadata of a Workspace that is being deleted.
- *
- * ⚠ **The reuse hazard the journal and the deletion records carry.** Metadata left behind by a
- * Workspace called "Marking 2026" is this machine's belief about a Remote, standing ready for whatever
- * "Marking 2026" is made next — which would arrive bound to somebody else's repository, with a
- * Baseline claiming its files were already shared.
- */
 export async function discardSynchronizationMetadata(
 	storage: MetadataStorage,
 	workspaceKey: string
@@ -303,13 +141,6 @@ export async function discardSynchronizationMetadata(
 	await metadata.clearWithdrawal();
 }
 
-/**
- * The three fields of a repository identity, and nothing else the caller happened to be carrying.
- *
- * ⚠ **Spelled out rather than spread.** A {@link StoredRelationship} read off disk carries its *own*
- * `formatVersion`, and spreading it over the stamp below silently wrote a record this build's reader
- * then refused — a Workspace that reported itself unbound the moment it was bound.
- */
 const identityOf = (remote: RemoteRelationship) => ({
 	owner: remote.owner,
 	repository: remote.repository,
@@ -321,37 +152,24 @@ const versionStamp = () => ({
 	at: new Date().toISOString()
 });
 
-/** A stored record's repository identity, or `null` for anything this build has no rules for. */
 function decodeIdentity(stored: unknown): RemoteRelationship | null {
-	if (typeof stored !== 'object' || stored === null) return null;
+	if (!isRecord(stored)) return null;
 	const record = stored as Partial<StoredRelationship>;
 	if (record.formatVersion !== SYNCHRONIZATION_FORMAT_VERSION) return null;
-	// Re-checked against GitHub's character sets on the way out, not only on the way in: this is
-	// user-writable browser storage, and both fields are interpolated straight into an API path.
 	return normaliseRemoteIdentity(record);
 }
-
-const decodeRelationship = (stored: unknown): RemoteRelationship | null => decodeIdentity(stored);
 
 function decodeBaseline(
 	stored: unknown,
 	remote: RemoteRelationship
 ): SynchronizationBaseline | null {
 	const identity = decodeIdentity(stored);
-	if (identity === null) return null;
-	// A claim about somewhere else, which is no claim about here — asked through `isSameRemote` so
-	// that "the same repository" means here exactly what it means to the Open that reuses a Workspace
-	// and the Import that refuses its own Remote. Compared byte for byte, re-binding `ada/atlas` by
-	// pasting `github.com/Ada/Atlas` would throw away a Baseline that describes this very Remote and
-	// report `Cannot tell` over evidence there is.
-	if (!isSameRemote(identity, remote)) return null;
+	if (identity === null || !isSameRemote(identity, remote)) return null;
 	const record = stored as Partial<StoredBaseline>;
 	if (typeof record.commit !== 'string' || record.commit === '') return null;
 	if (!(record.files instanceof Map)) return null;
 	const files = new Map<string, string>();
 	for (const [path, sha] of record.files) {
-		// One bad entry is a truncated or foreign record rather than a Baseline missing one file, and
-		// reading it as the latter is how a partial belief comes to license an overwrite.
 		if (typeof path !== 'string' || path === '') return null;
 		if (typeof sha !== 'string' || sha === '') return null;
 		files.set(path, sha);

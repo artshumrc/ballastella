@@ -14,10 +14,7 @@
 		"@ballastella/core": "workspace:*",
 		"@ballastella/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"dompurify": "catalog:",
 		"maplibre-gl": "catalog:",
-		"marked": "catalog:",
-		"pmtiles": "catalog:",
 		"triiiceratops": "catalog:"
 	},
 	"devDependencies": {
@@ -26,7 +23,6 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
-		"daisyui": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",

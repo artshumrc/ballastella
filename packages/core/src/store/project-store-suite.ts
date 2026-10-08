@@ -7,64 +7,17 @@ import {
 	type ProjectStore,
 	type StorePath
 } from './project-store.js';
+import { encode, decode } from '../test-support.js';
 
-/** Where a write can fail. Both are states only the storage layer can put the store into. */
 export type WriteStep = 'bytes' | 'rename';
 
-/**
- * One backend, plus the three things the suite needs that the public interface cannot give it.
- *
- * Each of these is supplied by the backend's own test file rather than reached for inside the
- * suite. That is the difference that matters: the suite knows nothing structural about any
- * backend, so the File System Access adapter passes it unchanged by providing a fixture, not by
- * having to inherit from a particular base class.
- */
-export interface StoreUnderTest {
+interface StoreUnderTest {
 	readonly store: ProjectStore;
-
-	/**
-	 * Every path the backend actually holds, sorted, temporary files included.
-	 *
-	 * `list` filters the reserved suffix **by construction**, so a "no litter" assertion made
-	 * through `list` passes whether or not the cleanup exists. This is the backend's own view.
-	 */
 	everyStoredPath(): Promise<StorePath[]>;
-
-	/**
-	 * Make the next `write` fail at `step`, and only that one.
-	 *
-	 * `'bytes'` is the temporary file failing to land — a full disk, which Chromium reports from
-	 * `close()`. `'rename'` is the move into place failing, which is the step ADR-0017 rule 4 is
-	 * actually about. No public API can produce either, and each backend has its own honest way to
-	 * inject them: the in-memory double has a documented fault switch alongside `unreachable()`,
-	 * and the OPFS adapter is interrupted by patching the browser API it calls.
-	 */
 	failNextWrite(step: WriteStep): void;
-
-	/**
-	 * Put a half-finished atomic write at `path` — what a tab that died between the two steps of a
-	 * write leaves behind.
-	 *
-	 * There is deliberately no way to do this through the interface: the suffix is reserved, so
-	 * `write` refuses it, `list` never reports it, and `delete` cannot be handed it. That is why
-	 * `reclaimAbandonedWrites` exists, and why this has to come from the fixture.
-	 */
 	plantAbandonedWrite(path: StorePath): Promise<void>;
 }
 
-/**
- * The behaviour every {@link ProjectStore} backend owes its callers, run against each of
- * them unchanged.
- *
- * This is the load-bearing artefact of the storage layer, not a convenience. Every
- * backend has to pass this suite **with no changes to the suite**: if a
- * backend needs the interface widened or an assertion relaxed, that is evidence the
- * interface was shaped around whichever backend was written first, and the fix belongs in
- * the interface (ADR-0001).
- *
- * @param name how the backend is described in test output
- * @param createStore a fresh, empty {@link StoreUnderTest} per test
- */
 export function describeProjectStore(
 	name: string,
 	createStore: () => Promise<StoreUnderTest> | StoreUnderTest
@@ -72,7 +25,6 @@ export function describeProjectStore(
 	describe(name, () => {
 		let subject: StoreUnderTest;
 		let store: ProjectStore;
-		const utf8 = new TextEncoder();
 
 		beforeEach(async () => {
 			subject = await createStore();
@@ -88,16 +40,16 @@ export function describeProjectStore(
 			});
 
 			it('creates missing parent directories on the way', async () => {
-				await store.write('a/b/c/d/tile.jpg', utf8.encode('tile'));
+				await store.write('a/b/c/d/tile.jpg', encode('tile'));
 
 				expect(await store.list('a/')).toEqual(['a/b/c/d/tile.jpg']);
 			});
 
 			it('replaces the previous contents rather than appending to them', async () => {
-				await store.write('p/project.json', utf8.encode('a much longer first version'));
-				await store.write('p/project.json', utf8.encode('short'));
+				await store.write('p/project.json', encode('a much longer first version'));
+				await store.write('p/project.json', encode('short'));
 
-				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('short');
+				expect(decode(await store.read('p/project.json'))).toBe('short');
 			});
 
 			it('rejects reading a path that holds nothing', async () => {
@@ -105,13 +57,13 @@ export function describeProjectStore(
 			});
 
 			it('does not let a caller mutate stored bytes through the array it wrote or read', async () => {
-				const written = utf8.encode('original');
+				const written = encode('original');
 				await store.write('p/project.json', written);
 				written[0] = 0x21;
 				const readBack = await store.read('p/project.json');
 				readBack[1] = 0x21;
 
-				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('original');
+				expect(decode(await store.read('p/project.json'))).toBe('original');
 			});
 
 			it('stores a zero-length file as a file that exists and is empty', async () => {
@@ -125,10 +77,10 @@ export function describeProjectStore(
 
 		describe('listing', () => {
 			beforeEach(async () => {
-				await store.write('a/project.json', utf8.encode('a'));
-				await store.write('a/annotations/one.geojson', utf8.encode('one'));
-				await store.write('ab/project.json', utf8.encode('ab'));
-				await store.write('b/project.json', utf8.encode('b'));
+				await store.write('a/project.json', encode('a'));
+				await store.write('a/annotations/one.geojson', encode('one'));
+				await store.write('ab/project.json', encode('ab'));
+				await store.write('b/project.json', encode('b'));
 			});
 
 			it('returns every path under a directory prefix, recursively, sorted', async () => {
@@ -155,7 +107,7 @@ export function describeProjectStore(
 
 		describe('deleting', () => {
 			it('removes the path', async () => {
-				await store.write('p/project.json', utf8.encode('p'));
+				await store.write('p/project.json', encode('p'));
 				await store.delete('p/project.json');
 
 				expect(await store.list('')).toEqual([]);
@@ -167,8 +119,8 @@ export function describeProjectStore(
 			});
 
 			it('leaves siblings alone', async () => {
-				await store.write('p/a', utf8.encode('a'));
-				await store.write('p/b', utf8.encode('b'));
+				await store.write('p/a', encode('a'));
+				await store.write('p/b', encode('b'));
 				await store.delete('p/a');
 
 				expect(await store.list('p/')).toEqual(['p/b']);
@@ -176,20 +128,9 @@ export function describeProjectStore(
 		});
 
 		describe('size', () => {
-			it('returns the byte length', async () => {
-				await store.write('p/tile.jpg', new Uint8Array(1234));
-
-				expect(await store.size('p/tile.jpg')).toBe(1234);
-			});
-
-			it('answers without reading the file', async () => {
-				// The whole reason `size` is in the interface (ADR-0008's hosting cliff, warned about
-				// in tickets 15 and 16): a workspace's total is thousands of tile files, and summing
-				// it by reading every one of them would be unusable. A `size` implemented as a read
-				// would pass every other assertion here, so this one guards it directly.
+			it('returns the byte length without reading the file', async () => {
 				await store.write('p/tile.jpg', new Uint8Array(1234));
 				const read = vi.spyOn(store, 'read');
-
 				expect(await store.size('p/tile.jpg')).toBe(1234);
 				expect(read).not.toHaveBeenCalled();
 			});
@@ -200,8 +141,8 @@ export function describeProjectStore(
 		});
 
 		describe('atomic writes (ADR-0017 rule 4)', () => {
-			const first = utf8.encode('{"formatVersion":1,"name":"Amsterdam 1625"}');
-			const second = utf8.encode('{"formatVersion":1,"name":"Amsterdam 1626"}');
+			const first = encode('{"formatVersion":1,"name":"Amsterdam 1625"}');
+			const second = encode('{"formatVersion":1,"name":"Amsterdam 1626"}');
 			const abandoned = `p/.project.json.abandoned${TEMP_PATH_SUFFIX}`;
 
 			const steps: [string, WriteStep][] = [
@@ -209,26 +150,18 @@ export function describeProjectStore(
 				['the move into place fails', 'rename']
 			];
 
-			it('leaves the previous contents intact and parseable when the move into place fails', async () => {
-				await store.write('p/project.json', first);
-				subject.failNextWrite('rename');
+			it.each(steps)(
+				'keeps the previous contents and leaves no litter behind when %s',
+				async (_description, step) => {
+					await store.write('p/project.json', first);
+					subject.failNextWrite(step);
 
-				await expect(store.write('p/project.json', second)).rejects.toThrow();
+					await expect(store.write('p/project.json', second)).rejects.toThrow();
 
-				const survivor = new TextDecoder().decode(await store.read('p/project.json'));
-				expect(JSON.parse(survivor)).toEqual({ formatVersion: 1, name: 'Amsterdam 1625' });
-			});
-
-			it.each(steps)('leaves no litter behind when %s', async (_description, step) => {
-				await store.write('p/project.json', first);
-				subject.failNextWrite(step);
-				await store.write('p/project.json', second).catch(() => undefined);
-
-				// The backend's own view, not `list`'s: `list` filters the reserved suffix by
-				// construction, so through `list` this assertion passes with no cleanup at all.
-				expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
-				expect(await store.size('p/project.json')).toBe(first.byteLength);
-			});
+					expect(await store.read('p/project.json')).toEqual(first);
+					expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
+				}
+			);
 
 			it.each(steps)(
 				'creates nothing at all when the very first write to a path fails and %s',
@@ -250,16 +183,15 @@ export function describeProjectStore(
 				expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
 			});
 
-			it('reclaims a half-finished write left behind by a crashed tab', async () => {
+			it.each([
+				['a half-finished write left behind by a crashed tab', abandoned],
+				['the swap file an implementation writes beside a temporary one', `${abandoned}.crswap`]
+			])('hides and reclaims %s', async (_description, litter) => {
 				await store.write('p/project.json', first);
-				await subject.plantAbandonedWrite(abandoned);
+				await subject.plantAbandonedWrite(litter);
 
-				// `list` cannot report it and `delete` cannot be handed it, so without a sweep a
-				// "deleted" Project's directory survives on disk forever — outside the `list` + `size`
-				// totals the ~1 GB hosting warning is judged against, and in a real folder a stray dotfile the
-				// user commits to their git repository.
 				expect(await store.list('')).toEqual(['p/project.json']);
-				expect(await subject.everyStoredPath()).toEqual([abandoned, 'p/project.json']);
+				expect(await subject.everyStoredPath()).toEqual([litter, 'p/project.json']);
 
 				await store.reclaimAbandonedWrites('p/');
 
@@ -281,36 +213,6 @@ export function describeProjectStore(
 					'q/project.json'
 				]);
 			});
-
-			it('gives a caller no way to reach a reserved path itself', async () => {
-				// `reclaimAbandonedWrites` removes; it neither lists nor writes. A caller that could
-				// name a temporary path could put Project data somewhere `list` hides it.
-				await expect(store.write(abandoned, first)).rejects.toThrow(InvalidPathError);
-				await expect(store.delete(abandoned)).rejects.toThrow(InvalidPathError);
-			});
-
-			it('treats the swap file an implementation writes beside a temporary one as litter too', async () => {
-				// Chromium's `createWritable()` creates `<name>.crswap` next to the file it is writing,
-				// so a crash during the *first* step of an atomic write leaves
-				// `<name>.ballastella-tmp.crswap` — which does not end in the reserved suffix. Left
-				// outside the machinery it was invisible to `reclaimAbandonedWrites`, which exists for
-				// exactly this, while `list` reported it **as project data**: into the size totals tickets
-				// 15 and 16 warn from, into a zip on export, and on into a colleague's Workspace.
-				//
-				// Planted here rather than provoked, because only one backend writes one and every
-				// backend owes the same answer about it. The exception path is asserted for real in
-				// `e2e/editor-folder-workspace.e2e.ts`; this is the crash path, which nothing can stage.
-				const swap = `${abandoned}.crswap`;
-				await store.write('p/project.json', first);
-				await subject.plantAbandonedWrite(swap);
-
-				expect(await store.list('')).toEqual(['p/project.json']);
-				await expect(store.write(swap, first)).rejects.toThrow(InvalidPathError);
-
-				await store.reclaimAbandonedWrites('p/');
-
-				expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
-			});
 		});
 
 		describe('paths', () => {
@@ -322,9 +224,11 @@ export function describeProjectStore(
 				['a parent traversal', 'p/../escaped.json'],
 				['a current-directory segment', 'p/./project.json'],
 				['a backslash separator', 'p\\project.json'],
-				['the reserved temporary suffix', 'p/project.json.ballastella-tmp']
+				['the reserved temporary suffix', 'p/project.json.ballastella-tmp'],
+				['a swap file beside a temporary one', 'p/project.json.ballastella-tmp.crswap']
 			])('refuses %s', async (_description, path) => {
-				await expect(store.write(path, utf8.encode('x'))).rejects.toThrow(InvalidPathError);
+				await expect(store.write(path, encode('x'))).rejects.toThrow(InvalidPathError);
+				await expect(store.delete(path)).rejects.toThrow(InvalidPathError);
 			});
 		});
 	});

@@ -1,49 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════════════════════════
- * THE TWO COLOURS THE LAYER KINDS ARE DRAWN IN — ONE TABLE, ONE EDIT
- *
- * Every colour a Layer card wears comes from this table, and every entry in it is a daisyUI theme
- * token rather than a value: change the pair here (or redefine the tokens in the theme generator)
- * and the tint, the kind line, the visibility toggle, the opacity slider *and the buttons inside the
- * card* all follow. Nothing that draws inside a Layer card names a colour any other way.
- *
- * **A module rather than a `const` in `LayerList.svelte`, because the card is not all in one file.**
- * What a card *contains* is supplied as snippets by `ProjectScreen.svelte` — the Align link for a
- * Map Image, `AnnotationTools` and the Inspector's faces for an Annotation Layer — so those files
- * draw controls that have to be the same colour as the header above them. They used to say
- * `btn-secondary` and cite this table in a comment, which is a mapping kept in two places and only
- * one of them checked by anything.
- *
- * **Why `accent` and `info`.** The pair is a decision of the project's rather than of this file's:
- * `accent` goes to Map Images and `info` to Annotations — a teal and a blue in the stock themes,
- * though the theme is free to make them anything, and neither reads as a demotion of the other, which
- * is the one property a pair for two peer kinds must have.
- *
- * **A kind's colour is the colour of everything in its card**, and also of the one button that adds
- * a card of that kind: the pair below the stack — "Add a Map Image" and "Add an Annotation Layer" —
- * wears `accent` and `info` so that pressing a colour is what produces a card of that colour.
- * `primary` remains the action colour for everything not about a single kind: the dialogs, the
- * screen's own actions.
- *
- * Two overlaps come with `info`, both deliberately accepted:
- *
- *   • **The tiles badge is a status colour two lines below a map's kind line** — `badge-success` for
- *     a local copy, `badge-warning` for one that needs the network. Those are in the *map* card,
- *     whose colour is `accent`, so no Layer's kind colour is ever a status colour in the card it sits
- *     in. `info` itself is used nowhere as a status in this column.
- *   • **`layout.css` draws Resource Mask handles in `accent`** and `AlignmentWorkspace` marks a
- *     selected Control Point with `secondary`. Both are on the alignment route, on map-pane overlays,
- *     and neither is ever on screen beside a Layer card.
- *
- * Written as whole class strings rather than composed from a token name, because Tailwind finds the
- * classes it generates by reading the source: `bg-${token}/10` built at runtime produces a class that
- * exists in the DOM and in no stylesheet. For the same reason a consumer must use these strings
- * whole — `${style.btn}` in a class attribute is fine, `btn-${kind}` is not.
- *
- * The headers use the full kind colour. The `ink` entries use each fill token's paired `*-content`
- * token, so the cards remain legible without hard-coding a colour or relying on a translucent
- * background.
- */
 export const KIND_STYLE = {
 	map: {
 		tint: 'bg-accent',
@@ -51,7 +5,6 @@ export const KIND_STYLE = {
 		toggle: 'toggle-accent',
 		range: 'range-accent',
 		btn: 'btn-accent',
-		/** For a `<label>`-wrapped radio that becomes the pressed one: `has-[:checked]:btn-accent`. */
 		btnWhenChecked: 'has-[:checked]:btn-accent'
 	},
 	annotation: {
@@ -62,11 +15,6 @@ export const KIND_STYLE = {
 		btn: 'btn-info',
 		btnWhenChecked: 'has-[:checked]:btn-info'
 	},
-	/**
-	 * A kind this build has never heard of wears the drained pair (ADR-0014). It is not drawn on the
-	 * map, so a colour saying "this is one of the two kinds of thing on your map" would be a lie — and
-	 * it has no contents, so it has no buttons to colour.
-	 */
 	foreign: {
 		tint: 'bg-base-content/5',
 		ink: 'text-base-content/70',

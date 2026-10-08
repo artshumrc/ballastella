@@ -50,8 +50,6 @@ describe('what a transfer is said to have been', () => {
 		).toBe('Copied from a review copy of the Project “Amsterdam 1625”.');
 	});
 
-	// A transfer a later build recorded. The reader is told that something happened and that this
-	// version cannot say what, rather than being shown a gap.
 	it('says a kind it does not know is a kind it does not know', () => {
 		expect(
 			describeImportProvenance({
@@ -80,26 +78,17 @@ describe('what a transfer is said to have been', () => {
 });
 
 describe('what a reader is told about the evidence', () => {
-	it('says an observed entry was seen here', () => {
+	it.each([
+		['observed', 'Seen by Ballastella as this copy was made.'],
+		['inherited', 'Carried in with the Project from an earlier transfer, and not checked here.']
+	] as const)('says what a %s entry was', (evidence, said) => {
 		expect(
 			describeImportEvidence({
 				kind: 'review',
 				projectName: 'Amsterdam 1625',
 				observedAt: AT,
-				evidence: 'observed'
+				evidence
 			})
-		).toBe('Seen by Ballastella as this copy was made.');
-	});
-
-	// A carried claim shown beside a witnessed one must not read as a verified one.
-	it('says an inherited entry was not checked', () => {
-		expect(
-			describeImportEvidence({
-				kind: 'review',
-				projectName: 'Amsterdam 1625',
-				observedAt: AT,
-				evidence: 'inherited'
-			})
-		).toContain('not checked here');
+		).toBe(said);
 	});
 });

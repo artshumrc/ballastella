@@ -1,45 +1,25 @@
-// The two GitHub hosts Ballastella talks to, and what every response of theirs says about the budget.
-//
-// A leaf of their own rather than constants inside `fake-github.ts`, because the send engine
-// needs the API origin and a fixture must never be something production code imports. The rate-limit
-// reading lives here for the same reason it is one function: the send, the get and the Review
-// all meet the same 403 and would otherwise each decide for themselves what an absent header means.
+import type { FetchFn } from '../injection/store-image-fetch.js';
+import { createHttpProjectStore } from '../store/http-project-store.js';
+import type { Bytes, StorePath } from '../store/project-store.js';
+import { gitBlobSha } from './blob-sha.js';
+import type { RemoteReference } from './remote-binding.js';
 
-/** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
-
-/** Where a public repository's bytes are read from, unauthenticated, by a get and by Review. */
 export const GITHUB_RAW_ORIGIN = 'https://raw.githubusercontent.com';
 
-/**
- * A header's number, or `null` when it is absent or unreadable.
- *
- * ⚠ `Headers#get` answers `null` for a header that is not there and `Number(null)` is `0`, which
- * `Number.isFinite` accepts — so a response carrying no budget header would otherwise read as a
- * budget of nought: a warning that GitHub allows no more requests this hour, and every later 403,
- * including a token with no `contents: write`, reported as a rate limit that waiting would fix.
- */
-export function headerNumber(headers: Headers, name: string): number | null {
+function headerNumber(headers: Headers, name: string): number | null {
 	const raw = headers.get(name);
 	if (raw === null || raw.trim() === '') return null;
 	const value = Number(raw);
 	return Number.isFinite(value) ? value : null;
 }
 
-/** What a response says is left of the hourly budget, and when it starts again. */
 export type RateLimit = {
 	readonly remaining: number | null;
 	readonly resetAt: Date | null;
 };
 
-/**
- * The hourly budget as one response reports it.
- *
- * ⚠ **Readable at all only because `api.github.com` names both headers in
- * `access-control-expose-headers`.** A cross-origin response whose headers were not exposed arrives
- * with every one of them hidden, so this answers `{ null, null }` — which is why nothing here may
- * treat a missing header as a spent budget.
- */
+// Readable only because api.github.com lists both headers in access-control-expose-headers.
 export function rateLimitOf(headers: Headers): RateLimit {
 	const reset = headerNumber(headers, 'X-RateLimit-Reset');
 	return {
@@ -48,8 +28,102 @@ export function rateLimitOf(headers: Headers): RateLimit {
 	};
 }
 
-/** A reset time in the reader's own clock, or `''` when the response did not say when. */
 export const describeReset = (resetAt: Date | null): string =>
 	resetAt === null
 		? ''
 		: resetAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+export const urlPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
+
+export const repoApiUrl = (remote: RemoteReference): string =>
+	`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}`;
+
+const rawUrl = (remote: RemoteReference, ref: string, path: string): string =>
+	`${GITHUB_RAW_ORIGIN}/${urlPath(remote.owner)}/${urlPath(remote.repository)}/` +
+	`${urlPath(ref)}/${urlPath(path)}`;
+
+export function authorisedFetch(
+	fetchFn: FetchFn | undefined,
+	token: string | null,
+	headers: Record<string, string> = {}
+): FetchFn {
+	const request = fetchFn ?? ((input, init) => fetch(input, init));
+	return (input, init = {}) =>
+		request(input, {
+			...init,
+			headers: {
+				...headers,
+				...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+				...(init.headers as Record<string, string> | undefined)
+			}
+		});
+}
+
+export const githubFetch = (fetchFn: FetchFn | undefined, token: string | null): FetchFn =>
+	authorisedFetch(fetchFn, token, { Accept: 'application/vnd.github+json' });
+
+export async function problemOf(response: Response): Promise<string> {
+	try {
+		const body = (await response.json()) as { message?: unknown };
+		return typeof body?.message === 'string' ? body.message : response.statusText;
+	} catch {
+		return response.statusText;
+	}
+}
+
+type TreeEntry = {
+	readonly path: string;
+	readonly sha: string;
+	readonly type: unknown;
+	readonly mode: string | null;
+	readonly size: number;
+};
+
+export function parseTree(body: unknown): { entries: TreeEntry[]; truncated: boolean } {
+	const { tree, truncated } = (body ?? {}) as { tree?: unknown; truncated?: unknown };
+	const listed = (Array.isArray(tree) ? tree : []) as readonly Record<string, unknown>[];
+	return {
+		entries: listed.flatMap(({ path, sha, type, mode, size }) =>
+			typeof path === 'string' && typeof sha === 'string'
+				? [
+						{
+							path,
+							sha,
+							type,
+							mode: typeof mode === 'string' ? mode : null,
+							size: typeof size === 'number' ? size : 0
+						}
+					]
+				: []
+		),
+		truncated: truncated === true
+	};
+}
+
+export function rawReader(
+	remote: RemoteReference,
+	ref: string,
+	fetchFn: FetchFn | undefined
+): (path: string) => Promise<Bytes> {
+	const source = createHttpProjectStore({
+		resolve: (path) => rawUrl(remote, ref, path),
+		...(fetchFn === undefined ? {} : { fetch: fetchFn })
+	});
+	return (path) => source.read(path as StorePath);
+}
+
+export function verifiedReader(
+	remote: RemoteReference,
+	ref: string,
+	fetchFn: FetchFn | undefined,
+	refuse: { missing(path: string, cause: unknown): Error; corrupt(path: string): Error }
+): (path: string, sha: string) => Promise<Bytes> {
+	const read = rawReader(remote, ref, fetchFn);
+	return async (path, sha) => {
+		const content = await read(path).catch((cause: unknown) => {
+			throw refuse.missing(path, cause);
+		});
+		if ((await gitBlobSha(content)) !== sha) throw refuse.corrupt(path);
+		return content;
+	};
+}

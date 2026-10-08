@@ -1,12 +1,8 @@
-// Tile enumeration, asserted numerically. This is what makes the budget honest: the number the
-// dialog shows and the work the loop does are the same list, so a test of the list is a test of both.
-
 import { describe, expect, it } from 'vitest';
 
 import {
 	BASE_MAP_TILE_ROOT,
 	ESTIMATED_BYTES_PER_TILE,
-	MEASURED_CANAL_BELT,
 	OFFLINE_TILE_LIMIT,
 	baseMapArchiveKey,
 	baseMapTileDirectory,
@@ -20,10 +16,7 @@ import {
 } from './tile-cache';
 import type { GeoBounds } from '../project/opening-view';
 
-/**
- * Central Amsterdam's canal belt, and the box the measurement at the top of `tile-cache.ts` was
- * taken over. Roughly 2.7 km by 2.2 km — a Project about one city's streets.
- */
+const MEASURED_CANAL_BELT = { tiles: 23, decompressedBytes: 3_485_916 } as const;
 const CANAL_BELT: GeoBounds = { west: 4.88, south: 52.36, east: 4.92, north: 52.38 };
 
 const at = (tiles: readonly { z: number; x: number; y: number }[], z: number) =>
@@ -35,8 +28,6 @@ describe('tilesForBounds', () => {
 	});
 
 	it('names the Web Mercator tiles a known box falls in, by number', () => {
-		// x = floor(((lng + 180) / 360) * 2^14): 4.88 → 8414.1, 4.92 → 8415.9.
-		// y from the Mercator formula: 52.38 → 5383.5, 52.36 → 5385.2.
 		expect(at(tilesForBounds(CANAL_BELT, 14), 14)).toEqual([
 			{ z: 14, x: 8414, y: 5383 },
 			{ z: 14, x: 8414, y: 5384 },
@@ -45,7 +36,6 @@ describe('tilesForBounds', () => {
 			{ z: 14, x: 8415, y: 5384 },
 			{ z: 14, x: 8415, y: 5385 }
 		]);
-		// And one level up, exactly the parents of those six.
 		expect(at(tilesForBounds(CANAL_BELT, 14), 13)).toEqual([
 			{ z: 13, x: 4207, y: 2691 },
 			{ z: 13, x: 4207, y: 2692 }
@@ -57,13 +47,10 @@ describe('tilesForBounds', () => {
 		expect([...new Set(tiles.map((tile) => tile.z))].sort((a, b) => a - b)).toEqual([
 			0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 		]);
-		// The count the budget dialog would show for a city-centre Project, measured against the real
-		// archive in the note at the top of `tile-cache.ts`: tens of tiles, not thousands.
-		expect(tiles.length).toBe(23);
+		expect(tiles.length).toBe(MEASURED_CANAL_BELT.tiles);
 	});
 
 	it('is a neighbourhood at 23 tiles and a continent at hundreds of thousands', () => {
-		// The contrast ADR-0025 rests its refusal threshold on, in one assertion rather than in prose.
 		const africa: GeoBounds = { west: -18, south: -35, east: 52, north: 38 };
 		expect(countTilesForBounds(africa, 14)).toBeGreaterThan(100_000);
 	});
@@ -74,11 +61,8 @@ describe('tilesForBounds', () => {
 	});
 
 	it('takes the short way round a box that crosses the antimeridian', () => {
-		// `projectOpeningBounds` expresses Tokyo-to-San-Francisco with `east` above 180. The columns run
-		// past the pyramid's width and wrap, rather than sweeping the whole world the other way.
 		const pacific: GeoBounds = { west: 139.77, south: 37.6, east: 237.58, north: 37.8 };
 		const z4 = at(tilesForBounds(pacific, 4), 4);
-		// 139.77° → column 14, 237.58° → column 18, which wraps to 2. Five columns, not eleven.
 		expect(z4.map((tile) => tile.x)).toEqual([14, 15, 0, 1, 2]);
 	});
 
@@ -96,43 +80,21 @@ describe('tilesForBounds', () => {
 });
 
 describe('the measured numbers ADR-0025 quotes', () => {
-	it('counts the canal belt at exactly what the archive was measured to hold', () => {
-		// The other end of `editor-base-map.e2e.ts`'s re-measurement of the fixture. That test proves the
-		// archive really holds 23 tiles and 3,485,916 bytes over this box; this one proves the code's own
-		// enumeration agrees about the count, so the two halves of the claim cannot drift apart.
-		expect(tilesForBounds(CANAL_BELT, 14).length).toBe(MEASURED_CANAL_BELT.tiles);
-	});
-
 	it('never under-quotes a realistic extent, because the error has a right direction', () => {
-		// ADR-0007: this number is what a user agrees to before somebody else's server is asked for
-		// hundreds of tiles. A quote that comes in under what is actually fetched is the one form of
-		// inaccuracy a courtesy figure must not have — and the first version of this constant did, by 8%.
 		const quoted = tileBudget(CANAL_BELT, 14).estimatedBytes;
 		expect(quoted).toBeGreaterThanOrEqual(MEASURED_CANAL_BELT.decompressedBytes);
-		// And not so far over that it frightens a user off a 3.5 MB fetch: within a quarter.
 		expect(quoted).toBeLessThan(MEASURED_CANAL_BELT.decompressedBytes * 1.25);
 	});
 });
 
 describe('a box with no area', () => {
-	// ⚠ `GeoBounds` lets `east` run past 180 for a box crossing the antimeridian, so nothing in the
-	// type stops `east < west`. `last - first + 1` was then negative and `countTilesForBounds`
-	// returned a negative total — the dialog offering to fetch minus four tiles for about minus
-	// 600 kB, and `overThreshold` false, so it would have offered the button too.
 	const INVERTED: GeoBounds = { west: 4.92, south: 52.36, east: 4.88, north: 52.38 };
-	/** And the other axis on its own, which fails the same way through `rows`. */
 	const UPSIDE_DOWN: GeoBounds = { west: 4.88, south: 52.38, east: 4.92, north: 52.36 };
 
 	it('needs a whole number of tiles, never a negative one', () => {
-		// It is not zero: at the coarse zooms both corners land in the same tile, which is a real tile
-		// and the honest answer for a box that degenerates to a point. What it must never be is
-		// *below* zero, and every deep zoom where the inversion actually bites now contributes none.
 		for (const bounds of [INVERTED, UPSIDE_DOWN]) {
 			const counted = countTilesForBounds(bounds, 14);
 			expect(counted).toBeGreaterThanOrEqual(0);
-			// The two enumerations still agree, which is the property the whole budget rests on — and
-			// the one that broke first: the list simply skipped a negative span, so the arithmetic
-			// count and the list it is supposed to predict disagreed by hundreds.
 			expect(counted).toBe(tilesForBounds(bounds, 14).length);
 		}
 	});
@@ -154,10 +116,6 @@ describe('countTilesForBounds', () => {
 	});
 
 	it('answers for a world-spanning extent without building 358 million entries', () => {
-		// **Not a performance test.** One Annotation drawn as a polygon round the planet is an ordinary
-		// Project, and the Project screen asks this question every time it opens. Building the list to
-		// find out it is over the threshold allocated gigabytes and left the Layer stack undrawn —
-		// `editor-layers.e2e.ts`'s whole-world fixture is where that showed up.
 		const world: GeoBounds = { west: -179, south: -85, east: 179, north: 85 };
 		const started = Date.now();
 		expect(countTilesForBounds(world, 14)).toBeGreaterThan(100_000_000);
@@ -181,7 +139,6 @@ describe('tileBudget', () => {
 		expect(budget.count).toBeGreaterThan(OFFLINE_TILE_LIMIT);
 		expect(budget.overThreshold).toBe(true);
 		expect(budget.limit).toBe(OFFLINE_TILE_LIMIT);
-		// And it does not carry the list, because nothing will walk it and building it is the hang.
 		expect(budget.tiles).toEqual([]);
 	});
 
@@ -193,7 +150,6 @@ describe('tileBudget', () => {
 	});
 });
 
-/** The deployment's archive, and a fork's, sharing a filename on different hosts. */
 const ARCHIVE = 'https://example.test/v4.pmtiles';
 const OTHER_ARCHIVE = 'https://other.test/v4.pmtiles';
 
@@ -216,29 +172,19 @@ describe('cachedTilePath', () => {
 			parseCachedTilePath(ARCHIVE, `${baseMapTileDirectory(ARCHIVE)}14/8434/5403.png`)
 		).toBeNull();
 		expect(parseCachedTilePath(ARCHIVE, 'images/abc/info.json')).toBeNull();
-		// The unkeyed layout is not this archive's, and is not anybody's: without the
-		// key there is no archive it can be attributed to. It is still *recognised* — see below.
 		expect(parseCachedTilePath(ARCHIVE, 'base-map/tiles/14/8434/5403.mvt')).toBeNull();
 	});
 });
 
 describe('the cache directory is keyed by archive', () => {
 	it('gives two archives two directories, so neither can serve the other’s tiles', () => {
-		// The failure this ends: ADR-0020 makes two entries on two archives a supported deployment, and
-		// one directory serving both draws a plausible pane of the *wrong world* — well-formed tiles,
-		// no 404, no log, nothing to notice. `parseCachedTilePath` is the half that refuses to read a
-		// foreign tile back as this archive's, which is what keeps `offlineCoverage` from counting it.
 		expect(baseMapTileDirectory(ARCHIVE)).not.toBe(baseMapTileDirectory(OTHER_ARCHIVE));
-
 		const tile = { z: 14, x: 8434, y: 5403 };
 		expect(parseCachedTilePath(ARCHIVE, cachedTilePath(OTHER_ARCHIVE, tile))).toBeNull();
 		expect(parseCachedTilePath(OTHER_ARCHIVE, cachedTilePath(ARCHIVE, tile))).toBeNull();
 	});
 
 	it('is stable for one archive, because a Published Site’s paths are already written', () => {
-		// The key is a site's own format: the tiles are copied verbatim into a site and read back by
-		// the viewer over HTTP, which cannot list a directory to find them. A key that varied per call,
-		// per session, or per deployment would be a site whose own viewer cannot find its own tiles.
 		expect(baseMapArchiveKey(ARCHIVE)).toBe(baseMapArchiveKey(ARCHIVE));
 		expect(baseMapTileDirectory(ARCHIVE)).toBe(
 			`${BASE_MAP_TILE_ROOT}${baseMapArchiveKey(ARCHIVE)}/`
@@ -246,8 +192,6 @@ describe('the cache directory is keyed by archive', () => {
 	});
 
 	it('is a single path segment a filesystem will take, whatever the archive looks like', () => {
-		// The key becomes a directory name in OPFS, in a folder the user can see, and in a URL a static
-		// host serves. A `/`, a `?`, or a space in it is a path that is not the path anybody meant.
 		for (const archive of [
 			ARCHIVE,
 			'base-map/amsterdam-centre.pmtiles',
@@ -260,21 +204,13 @@ describe('the cache directory is keyed by archive', () => {
 	});
 
 	it('still recognises the older unkeyed layout, as belonging to no archive', () => {
-		// A Workspace filled by an older build holds `base-map/tiles/{z}/{x}/{y}.mvt`. A reader that
-		// stopped seeing those bytes would make them invisible to the hub's size report and to its
-		// clear button — megabytes a user deliberately fetched from somebody else's server, occupying
-		// disk that nothing in the application admits to.
 		const tile = { z: 14, x: 8434, y: 5403 };
 		expect(legacyCachedTilePath(tile)).toBe('base-map/tiles/14/8434/5403.mvt');
 		expect(parseAnyCachedTilePath(legacyCachedTilePath(tile))).toEqual({ key: null, tile });
-
-		// `null` is not "some archive": coverage must not be satisfied by tiles it cannot attribute.
 		expect(parseCachedTilePath(ARCHIVE, legacyCachedTilePath(tile))).toBeNull();
 	});
 
 	it('reads the key back off a path, which is how a whole-Workspace walk finds every cache', () => {
-		// `baseMapCaches` has to answer for archives it is not holding — the hub's size and clear, and
-		// the site's file list — and the key is a one-way function, so the walk parses rather than guesses.
 		const tile = { z: 3, x: 4, y: 5 };
 		expect(parseAnyCachedTilePath(cachedTilePath(ARCHIVE, tile))).toEqual({
 			key: baseMapArchiveKey(ARCHIVE),

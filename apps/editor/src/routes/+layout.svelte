@@ -12,74 +12,18 @@
 	import ReviewBanner from '$lib/components/ReviewBanner.svelte';
 	import UpdatePrompt from '$lib/pwa/UpdatePrompt.svelte';
 	import { provideInstalledApp } from '$lib/pwa/installed-app.svelte.js';
-	import { startTheme } from '$lib/theme.svelte';
+	import { theme } from '$lib/theme.svelte';
 	import ToastStack from '$lib/toasts/ToastStack.svelte';
 	import { provideWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	let { children } = $props();
 
-	/**
-	 * The one Workspace, for every route.
-	 *
-	 * Here rather than per page because the layout mounts once for the whole app: a client-side
-	 * navigation between `/` and `/align/` then carries the live session — a resumed folder
-	 * included — instead of each route resolving the backing store for itself. The deleted
-	 * `/base-map/` used to call `EditorSession.opfs()` directly, so a folder-Workspace user's Base
-	 * Map choice was written into the wrong Workspace.
-	 *
-	 * `setContext` has to run during initialisation; the storage inside it is created in the effect,
-	 * because it reaches for browser storage that does not exist while prerendering.
-	 */
 	const host = provideWorkspaceHost();
-
 	$effect(() => host.begin());
-
-	/**
-	 * Make a forgotten `Image#uri` override say so, everywhere in the app (ADR-0004, ADR-0011).
-	 *
-	 * "Every code path constructing an `Image` sets `uri` before requesting a tile" is the most
-	 * fragile invariant in the project, because `Image#uri` is a plain public field and a single
-	 * assignment is exactly what a new code path forgets. What the browser gives that path for free
-	 * is a blank map and `TypeError: Failed to fetch` from a DNS failure against `.invalid` — loud,
-	 * as ADR-0004 intended, but naming nothing.
-	 *
-	 * So the placeholder host is refused at the global `fetch` before a request is made, with a
-	 * message that names the missing override and the two injection points that supply it. Every
-	 * consumer wired today goes through the shim and never reaches this; it is here for the next
-	 * one. In an `$effect` rather than at module scope because a module body also runs during
-	 * prerendering, where there is no page to guard and nothing has gone wrong.
-	 */
 	$effect(() => refuseUnroutedImageServiceRequests());
-
-	/**
-	 * The app shell as an installed application, and its version (ADR-0012).
-	 *
-	 * Here for the same reason the Workspace is: the layout mounts once for the whole app, so the
-	 * registration happens once rather than per route — and `resolveDeploymentAsset`, which is what
-	 * finds `service-worker.js` without writing a leading slash, is only correct while `base` and
-	 * `document.baseURI` still describe the same page, which is on mount and not after a client-side
-	 * navigation.
-	 *
-	 * `setContext` has to run during initialisation; the registration inside it is in the effect,
-	 * because a module body also runs while prerendering, where there is no navigator to register with.
-	 */
 	const installedApp = provideInstalledApp();
-
 	$effect(() => installedApp.start());
-
-	/**
-	 * The theme, applied once for the whole app.
-	 *
-	 * Here rather than in each route, which is where it was: three routes called `startTheme()` and
-	 * the hub did not, so a stored preference was applied only after navigating to one of the three.
-	 * It also has to be *one* call, because the unset state subscribes to `prefers-color-scheme` and
-	 * a per-route subscription would be one listener per visited route.
-	 *
-	 * In an effect for the reason every other browser-facing thing here is: a module body runs during
-	 * prerendering, where there is no `document` to paint and no `matchMedia` to follow.
-	 */
-	$effect(() => startTheme());
-
+	$effect(() => theme.start());
 	$effect(() => startAnalytics());
 	afterNavigate(trackPageview);
 </script>
@@ -87,57 +31,17 @@
 <svelte:head>
 	<link rel="icon" type="image/png" sizes="16x16" href={favicon16} />
 	<link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
-	<!--
-		ADR-0045: `asset()` prefixes with the base path, which `paths.relative` makes relative to the
-		page being rendered — so the prerendered `/align` carries `../manifest.webmanifest` and the
-		prerendered `/` carries `./manifest.webmanifest`, and the same build is installable from a
-		domain root and from a project subdirectory. The manifest's own `start_url` and `scope` are
-		`"."`, resolved by the browser against the manifest's URL, so they land on the deployment's root
-		wherever that is.
-	-->
 	<link rel="manifest" href={asset('/manifest.webmanifest')} />
 	<meta name="theme-color" content="#fbfaf7" />
 </svelte:head>
-<!--
-	The app is one screen tall and the routes divide it, rather than each route setting its own
-	`min-h-screen` and hoping the bar above it is the height it guessed. The scrolling region is the
-	one below the bar, so the bar stays put on the hub — which is the only long page — and the Project
-	screen can be exactly as tall as what is left, which is what makes its map full height without
-	arithmetic on the bar's own size.
--->
 <div class="flex h-screen flex-col">
-	<!--
-		Outside `children()` so it is on every route, and *before* it so it is first in the tab order
-		and first for a screen reader: a bar announced after the page it belongs to is a footer.
-	-->
 	<NavigationBar />
-	<!--
-		Directly under the bar and outside `children()`, so it is on **every** route — the Project screen
-		and the alignment route included, which are the two screens a user forgets where they are on
-		(ADR-0024). In the flow rather than fixed, because it must not cover the map it is warning about.
-	-->
 	<ReviewBanner />
-	<!--
-		Beside `ReviewBanner` and for its reason: on every route, including the two panes a scholar is
-		mid-alignment in, and in the flow rather than over it. A startup recovery has no timer, so a
-		floating card covers whatever it lands on for as long as the author takes to read it — which on
-		the Project screen was the Layer rail's only add affordance.
-	-->
 	<RecoveredEdits />
 	<div class="min-h-0 grow overflow-y-auto">{@render children()}</div>
 </div>
-<!--
-	Outside `children()` so that it is present on every route, including the two panes a scholar is
-	mid-alignment in. It renders a fixed-position region and inserts nothing into the page's flow.
--->
 <UpdatePrompt />
 {#if host.storage}
 	<ResumeFolderWorkspace storage={host.storage} />
 {/if}
-<!--
-	The one place every dismissible message is drawn, for `UpdatePrompt`'s reason and one of its own: a
-	daisyUI toast is `position: fixed`, so a second container in the document would sit on top of this
-	one. Mounted from the first frame, because the live region inside it has to exist before it has
-	anything to announce.
--->
 <ToastStack />

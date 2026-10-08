@@ -1,55 +1,14 @@
 import { DEFAULT_DARK_THEME, DEFAULT_THEME, isTheme, type Theme } from '@ballastella/core';
+import { applyThemeToDocument as applyToDocument, systemTheme } from '@ballastella/ui';
 
-/**
- * Where an explicit choice is kept.
- *
- * A theme is not Project data and never goes near a Workspace: it is a property of this person at
- * this browser, so it belongs in `localStorage` and not in `project.json`, where it would travel in
- * a backup and change a colleague's interface on restore.
- *
- * `ballastella.<thing>`, which is this app's one `localStorage` naming pattern — see
- * `remote-iiif/lookup-setting.svelte.ts`. **No app segment**, because there is nothing to tell
- * apart: the Published Site's `ThemeSignal` deliberately persists nothing at all, and the one
- * Reader preference that *is* persisted is scoped by ADR-0020's origin-and-path keying rather than
- * by a name. A segment here would be guarding against a collision that cannot happen.
- */
+import { readItem, writeItem } from './browser-storage.js';
+
 const STORAGE_KEY = 'ballastella.theme.v2';
 const LEGACY_STORAGE_KEY = 'ballastella.theme';
 
-/**
- * The one theme signal.
- *
- * ADR-0016 requires that a single source of truth drive both the UI and the Base Map flavor,
- * "not two independent toggles that happen to agree". This module is that source: it owns the
- * current theme, and it owns setting `data-theme` on the document, so there is no way to change
- * the interface's appearance without the map hearing about it in the same action.
- *
- * The Base Map side reads `theme.current` inside an effect. Nothing else stores a theme.
- *
- * ─────────────────────────────────────────────────────────────────────────────────────────
- * SYSTEM DEFAULT UNTIL AN EXPLICIT CHOICE
- *
- * The picker offers every emitted theme. Until the user chooses one, the app follows the operating
- * system live using Carto Light and Carto Dark:
- *
- * - any explicit theme — chosen, kept across visits
- * - **unset — follows the operating system, live**
- *
- * "Live" is the whole of it, and it is why {@link #system} is a `$state` fed by the media query's
- * `change` event rather than a value read once at construction. A desktop that switches to dark at
- * sunset, or an accessibility setting changed in another window, moves this app *while it is open*.
- * Reading `matchMedia(...).matches` once — which is what this did — respects the preference only
- * for people who reload, and a scholar mid-alignment does not reload.
- *
- * The first selection writes an explicit preference and stops following the OS. Clearing site data
- * returns to the system default.
- */
 class ThemeSignal {
-	/** An explicit choice, or `null` while the operating system is being followed. */
 	#chosen = $state.raw<Theme | null>(null);
-	/** What the operating system currently asks for. Updated by the media query's `change` event. */
 	#system = $state.raw<Theme>(DEFAULT_THEME);
-	/** So a second `startTheme()` — a second layout mount in a test — does not add a second listener. */
 	#started = false;
 
 	get current(): Theme {
@@ -58,15 +17,10 @@ class ThemeSignal {
 
 	set current(next: Theme) {
 		this.#chosen = next;
-		remember(next);
+		writeItem('localStorage', STORAGE_KEY, next);
 		applyToDocument(next);
 	}
 
-	/**
-	 * Adopt the stored choice, start following the operating system, and paint the document.
-	 *
-	 * Returns its own teardown, for the effect in the root layout that calls it.
-	 */
 	start(): () => void {
 		if (this.#started) return () => undefined;
 		this.#started = true;
@@ -78,11 +32,9 @@ class ThemeSignal {
 		}
 
 		const query = window.matchMedia('(prefers-color-scheme: dark)');
-		this.#system = query.matches ? DEFAULT_DARK_THEME : DEFAULT_THEME;
+		this.#system = systemTheme(query.matches);
 		const onchange = (event: MediaQueryListEvent): void => {
-			this.#system = event.matches ? DEFAULT_DARK_THEME : DEFAULT_THEME;
-			// Writes the *effective* theme, which is the chosen one when there is a choice — so an OS
-			// change with an explicit preference in force repaints nothing.
+			this.#system = systemTheme(event.matches);
 			applyToDocument(this.current);
 		};
 		query.addEventListener('change', onchange);
@@ -94,59 +46,13 @@ class ThemeSignal {
 	}
 }
 
-/**
- * The stored choice, or `null`.
- *
- * Anything that is not a selectable theme is `null` rather than an error: `localStorage` is
- * shared with every other script on the origin and with this app's own past versions, and a value
- * nobody recognises means "no choice has been made", which is a state this already handles.
- */
 function remembered(): Theme | null {
-	if (typeof localStorage === 'undefined') return null;
-	try {
-		const stored = localStorage.getItem(STORAGE_KEY);
-		if (stored !== null && isTheme(stored)) return stored;
-		const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-		if (legacy === 'light') return DEFAULT_THEME;
-		if (legacy === 'dark') return DEFAULT_DARK_THEME;
-		return null;
-	} catch {
-		// Private-mode Safari and a blocked-storage policy both throw here. A theme that does not
-		// survive the visit is a far smaller loss than a page that will not render.
-		return null;
-	}
-}
-
-function remember(theme: Theme): void {
-	if (typeof localStorage === 'undefined') return;
-	try {
-		localStorage.setItem(STORAGE_KEY, theme);
-	} catch {
-		// Same, and the same answer.
-	}
-}
-
-function applyToDocument(theme: Theme): void {
-	if (typeof document === 'undefined') return;
-	// daisyUI selects both built-in and custom themes on `data-theme` (ADR-0016).
-	document.documentElement.dataset.theme = theme;
-	const browserChrome = document.querySelector('meta[name="theme-color"]');
-	const base = getComputedStyle(document.documentElement)
-		.getPropertyValue('--color-base-100')
-		.trim();
-	if (base !== '') browserChrome?.setAttribute('content', base);
+	const stored = readItem('localStorage', STORAGE_KEY);
+	if (stored !== null && isTheme(stored)) return stored;
+	const legacy = readItem('localStorage', LEGACY_STORAGE_KEY);
+	if (legacy === 'light') return DEFAULT_THEME;
+	if (legacy === 'dark') return DEFAULT_DARK_THEME;
+	return null;
 }
 
 export const theme = new ThemeSignal();
-
-/**
- * Put the theme on the document and keep it there.
- *
- * Called once, from the **root layout** — not from a route. A per-route call was three calls that
- * had to agree, and any route that forgot one rendered with whatever `data-theme` the last page
- * happened to leave behind. The layout mounts once for the whole app, which is where a thing that
- * is true on every screen belongs.
- */
-export function startTheme(): () => void {
-	return theme.start();
-}

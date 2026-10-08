@@ -1,10 +1,3 @@
-// The application theme.
-//
-// ADR-0016 requires that ONE theme signal drives both the UI and the Base Map flavor, because
-// a dark interface framing a bright white map is the most obvious way a themed app looks
-// unfinished. Each selectable daisyUI theme therefore declares the light/dark scheme used by the
-// Base Map, and both apps and `baseMapStyle` read this one catalog.
-
 export type ThemeScheme = 'light' | 'dark';
 
 export const THEMES = [

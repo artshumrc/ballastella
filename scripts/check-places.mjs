@@ -1,31 +1,12 @@
 #!/usr/bin/env node
-// `pnpm check:places` — does the configured lookup service still answer, and does it still answer
-// the shape this application reads?
-//
-// ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-// │ HAND-RUN. IN NO GATE — NOT `pnpm lint`, NOT `pnpm test`, NOT CI. THIS IS THE ONE THING IN  │
-// │ THIS REPOSITORY PERMITTED TO REACH THE NETWORK, AND BEING OUTSIDE EVERY GATE IS *WHY*.     │
-// └───────────────────────────────────────────────────────────────────────────────────────────┘
-//
-// No test may depend on the network — the standing rule, enforced by `e2e/support/network-fence.ts`
-// and `scripts/check-e2e-network-fence.mjs`. In a gate, this script would hand a stranger's uptime
-// the power to turn this repository red, which is that rule's whole subject. **Do not add it to
-// one**, however tempting the coverage looks.
-//
-// It exists because a fixture is a snapshot of an assumption. Every test of the lookup drives a
-// captured response, and a captured response goes on passing forever after reality has moved. This
-// repository has been bitten by exactly that: `demo-bucket.protomaps.com` did not change shape, it
-// vanished, and nothing in the suite could have said so.
-//
-// And it gives a forker something they would otherwise lack — a way to find out they configured the
-// service wrongly before their students do.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { messageOf, repoRoot } from './fence.mjs';
+
 const serviceModule = 'packages/core/src/places/service.ts';
 const lookupModule = 'packages/core/src/places/lookup.ts';
 
@@ -35,32 +16,15 @@ try {
 } catch (error) {
 	fail(
 		`${serviceModule} could not be loaded, so there is no service to ask.`,
-		`${error instanceof Error ? error.message : String(error)}\n\n` +
+		`${messageOf(error)}\n\n` +
 			'Mid-repoint, this is the file to look at. Node runs the TypeScript directly ' +
 			'(type-stripping, Node 22.18+), so a construct it cannot erase reads as a syntax error here.'
 	);
 }
 
-/**
- * A query with several real answers, so an empty result is evidence about the service rather than
- * about the query. Springfield is the disambiguation case the whole candidate list exists for.
- */
 const QUERY = 'Springfield';
-
-/** Long enough that a slow answer is an answer. The app waits ten seconds; a person here can wait. */
 const TIMEOUT_MS = 15_000;
 
-/**
- * The fields `readPlace` reads, **read out of `readPlace`** rather than copied beside it.
- *
- * The whole of what this application depends on: the service answers a great deal more —
- * `place_id`, `osm_type`, `importance`, `licence` — and none of it is read, so none of it is asked
- * about here. A second copy of the list is the one thing here that can rot silently, because a
- * field added to or dropped from `readPlace` would leave this probe asking the live service about
- * the wrong shape and reporting green. `check-place-service.test.mjs` reads `BORROWED_SERVICES` out
- * of its script for the same reason, and cites the precedent: a hand copy is how
- * `check-deployment-runs.test.mjs` came to describe a catalog this repository had moved off.
- */
 function requiredFields() {
 	let source;
 	try {
@@ -68,7 +32,7 @@ function requiredFields() {
 	} catch (error) {
 		fail(
 			`${lookupModule} could not be read, so this check does not know what shape to ask about.`,
-			`${error instanceof Error ? error.message : String(error)}`
+			`${messageOf(error)}`
 		);
 	}
 	const body = source.split('function readPlace(')[1]?.split('\nfunction ')[0] ?? '';
@@ -94,8 +58,7 @@ try {
 } catch (error) {
 	fail(
 		`No address could be built out of \`PLACE_SERVICE.searchUrl\` in ${serviceModule}.`,
-		`${error instanceof Error ? error.message : String(error)}\n\n` +
-			'There is nothing to ask until `searchUrl` returns an absolute URL.'
+		`${messageOf(error)}\n\n` + 'There is nothing to ask until `searchUrl` returns an absolute URL.'
 	);
 }
 
@@ -104,8 +67,6 @@ console.log(`Asking ${host} about “${QUERY}” …\n  ${url}\n`);
 let response;
 try {
 	response = await fetch(url, {
-		// The default service's policy requires a `Referer` or `User-Agent` identifying the
-		// application. A browser sends the first; a script has to say who it is.
 		headers: {
 			'user-agent': 'ballastella-check-places (https://github.com/artshumrc/ballastella)'
 		},
@@ -113,7 +74,7 @@ try {
 	});
 } catch (error) {
 	fail(
-		`${host} did not answer: ${error instanceof Error ? error.message : String(error)}`,
+		`${host} did not answer: ${messageOf(error)}`,
 		'Unreachable, refused, or slower than ' +
 			`${TIMEOUT_MS / 1000}s. If this machine is online ` +
 			`and ${host} is up, the address in ${serviceModule} is the thing to check.`
@@ -136,7 +97,7 @@ try {
 	payload = await response.json();
 } catch (error) {
 	fail(
-		`${host} answered 200, and the body is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+		`${host} answered 200, and the body is not JSON: ${messageOf(error)}`,
 		'The application folds this into “the service did not answer”, which is the right sentence for ' +
 			'a scholar and the wrong one for you — hence this script.'
 	);
@@ -189,11 +150,6 @@ console.log(
 		`(${PLACE_SERVICE.attribution?.href ?? 'no link'})`
 );
 
-/**
- * Say what happened and what to do about it, then stop.
- *
- * @param {string} what @param {string} remedy @returns {never}
- */
 function fail(what, remedy) {
 	console.error(`\n${what}\n\n${remedy}\n`);
 	process.exit(1);

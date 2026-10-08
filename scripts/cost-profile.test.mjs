@@ -1,9 +1,3 @@
-// The cost profile's arithmetic, pinned away from a Playwright run.
-//
-// The reporter half is exercised by running the suite with `--profile` and reading the table it
-// writes. This is the rollup underneath it, which is where a wrong denominator would produce a
-// confident per-test figure that sends the next migration at the wrong file.
-
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -17,8 +11,6 @@ const run = (overrides = {}) => ({
 	...overrides
 });
 
-// The per-test figure is asserted through the table rather than through a field on the rollup, because
-// the table is what a reader reads: a field nothing prints can drift from it with the suite green.
 const row = (markdown, spec) =>
 	markdown.split('\n').find((line) => line.startsWith(`| \`${spec}\``));
 
@@ -43,8 +35,6 @@ test('a spec costs the sum of its tests, and ranks by that rather than by count'
 });
 
 test('a test that was retried costs the run both attempts', () => {
-	// The caller sums a test's attempts before this point; what matters here is that the retried test
-	// is one test in the denominator, not two, so its per-test cost reads as high rather than average.
 	const rolled = profile([{ spec: 'e2e/flaky.e2e.ts', title: 'a', ms: 8000 }]);
 	assert.equal(rolled.specs[0].count, 1);
 	assert.equal(
@@ -56,20 +46,17 @@ test('a test that was retried costs the run both attempts', () => {
 test('a skipped test is not a cheap test, so it stays out of the denominator', () => {
 	const rolled = profile([
 		{ spec: 'e2e/some-skips.e2e.ts', title: 'ran', ms: 4000 },
-		// A runtime `test.skip(condition)` records a small duration rather than none at all.
 		{ spec: 'e2e/some-skips.e2e.ts', title: 'skipped', ms: 90, skipped: true }
 	]);
 	assert.equal(rolled.totalTests, 1);
 	assert.equal(rolled.totalSkipped, 1);
 	assert.equal(rolled.totalMs, 4000);
 	const markdown = profileMarkdown(rolled, run());
-	// 4.00 rather than the 2.00 a counted skip would have printed.
 	assert.equal(
 		row(markdown, 'e2e/some-skips.e2e.ts'),
 		'| `e2e/some-skips.e2e.ts` | 1 | 4.0 | 4.00 |'
 	);
 	assert.match(markdown, /\| Skipped \(not counted above\) \| 1 \|/);
-	// And it is not listed among the spec's costliest tests either.
 	assert.doesNotMatch(markdown, /- 0\.1s — skipped/);
 });
 

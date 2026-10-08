@@ -19,9 +19,7 @@
 		"@ballastella/core": "workspace:*",
 		"@ballastella/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"dompurify": "catalog:",
 		"maplibre-gl": "catalog:",
-		"marked": "catalog:",
 		"pmtiles": "catalog:"
 	},
 	"devDependencies": {
@@ -32,7 +30,6 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@testing-library/jest-dom": "catalog:",
-		"daisyui": "catalog:",
 		"happy-dom": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",

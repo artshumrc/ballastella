@@ -1,49 +1,5 @@
-// Reading one Project's referenced documents over HTTP, and saying plainly what could not be read.
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────
-// WHY THIS FOLLOWS REFERENCES AND NEVER LISTS ANYTHING
-//
-// A static host has no directory listing, so ADR-0045's HTTP `ProjectStore` has no `list` — see
-// `packages/core/src/store/http-project-store.ts` for why an implementation returning `[]` would be a
-// lie in the worst direction. Everything below is therefore reached by a path `project.json` itself
-// names, or derived from one: an Annotation Layer's `geojsonRef`, and — from a map Layer's `imageId` —
-// `alignments/<image-id>.json` and `images/<image-id>/` at the **site root** (ADR-0023).
-//
-// That has a consequence the editor's Layers pane does not have and is better for it: `listReferencedImages`
-// walks `images/` and cannot be used here, so a referenced map's `remote.json` is fetched by name — which
-// is how the state below can tell "not read yet" from "not there".
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────
-// WHY THIS PROBES FOR `info.json` RATHER THAN READING A FLAG
-//
-// ADR-0023 deleted `MapLayer.imageMode`, because whether a Map Image's tiles are here is a fact
-// about the files and a stored flag could disagree with them — an offline copy used to leave every other
-// Project's Layer still claiming the library. So the answer is read the way it is written: an `info.json`
-// of ours means the tiles are on this site, and only a `remote.json` means they are on a Library's server.
-//
-// **The rule itself is core's `tileLocation` and this module does not restate it.** What is local here
-// is only the *observation*: the editor answers the same two booleans by walking `images/` once, and a
-// static host makes that impossible, so this asks for the two files by name and reads the 404. Two
-// observers, one rule — see `packages/core/src/project/map-images.ts` for why that seam exists and
-// what happened when it did not.
-//
-// `info.json` is asked for first because a local copy is the common case and that request costs nothing
-// extra — `@allmaps/maplibre` fetches the same file from `resource.id` to draw the map, so the probe hits
-// the same cache entry. Only a referenced map pays a 404 for the question.
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────
-// THE DEFECT THIS MODULE EXISTS TO NOT INHERIT
-//
-// *A `'referenced'` Layer whose `remote.json` is missing or unreadable renders blank while the page
-// reports it drawn.* The editor cannot tell those apart because `EditorSession` exposes no signal for "the remote records have
-// not been read yet", so its Layers pane hands the stack `service: ''`, and `''` on a referenced Layer
-// is a warped layer that asks the injection shim for a pyramid a referenced image by definition does not
-// have locally: blank, and reported as drawn.
-//
-// So {@link ReadDocuments} has three states per Layer and not two. `'loading'` is the state that was
-// missing: while it holds, the Layer is **not handed to the map at all**, so nothing can be reported
-// drawn from an address that has not arrived. `'unreadable'` carries the reason, including the host that
-// did not answer, which is the degradation rule {@link unreadable} states in full.
+// Referenced documents by path: static hosts have no listing. info.json probed before remote.json (ADR-0023); local copy hits the renderer's own cache entry.
+// Loading Layers are withheld from the map: service:'' on a not-yet-read Layer draws blank reported drawn.
 
 import {
 	PathNotFoundError,
@@ -64,70 +20,32 @@ import {
 	type ReadOnlyProjectStore
 } from '@ballastella/core';
 
-/** What a Layer's own documents amount to: something to draw, nothing yet, or a reason. */
-export type LayerDocuments =
+/** Per-Layer documents: drawable, not yet read, or a reason. Absent means not asked for. */
+type LayerDocuments =
 	| { readonly status: 'loading' }
 	| {
 			readonly status: 'ready';
-			/** The Alignment a map Layer draws. */
 			readonly alignment?: Alignment;
-			/** The Annotations an Annotation Layer draws. `null` for a Layer with no file. */
+			/** Annotations, null for a Layer with no file. */
 			readonly annotations?: AnnotationCollection | null;
-			/**
-			 * The remote image service a referenced map Layer's tiles come from, `''` for a local copy.
-			 *
-			 * `''` on a referenced Layer is unreachable by construction here: the read that would produce
-			 * it fails, and the Layer is `'unreadable'` instead — the defect the module comment describes, not
-			 * inherited here.
-			 */
+			/** Referenced Layer's remote service, '' for a local copy. Unreachable here: that read fails instead. */
 			readonly service?: string;
-			/**
-			 * Whether this map Layer's Map Image is served from somebody else's server, as observed
-			 * from the files on this site rather than claimed by `project.json` (ADR-0023).
-			 *
-			 * What the page says out loud about needing the network, and what `showAlignment` uses to refuse
-			 * a referenced Layer with no address instead of drawing a blank one.
-			 */
+			/** Tiles on another server, observed from files not claimed by project.json. */
 			readonly referenced?: boolean;
 	  }
 	| {
 			readonly status: 'unreadable';
 			readonly reason: string;
-			/** True when a host failed to answer rather than a file being absent. */
 			readonly hostUnreachable: boolean;
-			/**
-			 * Whether this map Layer's tiles are on somebody else's server, when that much was observable.
-			 *
-			 * Present on the failed case too, because the two questions are independent: a Layer whose
-			 * Alignment will not parse can still be one whose tiles need the network, and a Reader is owed
-			 * that either way. Absent when the image itself could not be placed.
-			 */
+			/** Tiles on another server, when that much was observable. Absent when the image placed nowhere. */
 			readonly referenced?: boolean;
-			/**
-			 * The Alignment, when it parsed but something *else* about the Layer did not.
-			 *
-			 * A sheet whose tiles cannot be fetched still has a place on the earth, and ADR-0026's opening
-			 * view is about places rather than about pixels — so this Layer contributes to the box even
-			 * though it draws nothing. Present because the editor has always framed on it and the two apps
-			 * are required to frame a Project the same way: while this was absent, a Layer with a good
-			 * Alignment and a bad image record placed the sheet in the editor and not on the Published Site.
-			 */
+			/** Parsed Alignment kept so framing still counts the sheet's place on earth. */
 			readonly alignment?: Alignment;
 	  };
 
-/** Every Layer's documents, by Layer id. A Layer absent from this has not been asked for. */
+/** Every Layer's documents, by id. One Layer's failure stays its own; this never rejects. Foreign skipped. */
 export type ReadDocuments = Readonly<Record<string, LayerDocuments>>;
 
-/**
- * Read the documents every drawable Layer of `layers` references.
- *
- * One Layer's failure is that Layer's, never the Project's: a missing or broken single Layer must
- * never take down the whole Project view. So every read is caught into that Layer's own entry, and
- * this function does not reject.
- *
- * `foreign` Layers are skipped: this build cannot draw a kind it has never heard of, and it has nothing
- * to fetch for one (ADR-0014). The Layer is still listed, named, and toggleable.
- */
 export async function readLayerDocuments(
 	store: ReadOnlyProjectStore,
 	directory: string,
@@ -146,25 +64,7 @@ export async function readLayerDocuments(
 	return read;
 }
 
-/**
- * The stack as `projectOpeningBounds` takes it: every Layer with whatever gives it a place on the
- * earth (ADR-0026).
- *
- * **Every Layer, including the ones the Reader has hidden.** ADR-0026's fallback chain ends "…failing
- * that, all Layers", so a Project whose Layers are all switched off still frames on the work rather
- * than on the deployment's default — which is a different question from what is *drawn*, and is why
- * this is not built from `drawn`.
- *
- * A Layer whose documents are still loading contributes nothing. Nor does one that could not be read
- * *at all*: the map is framed on what is known, and the Layer's own row already says what happened.
- *
- * **But an Alignment that parsed is a place, whatever else about the Layer failed.** `'ready'` is a
- * claim about drawing — it means this Layer can go on the map — and framing is a different question
- * from drawing. A Map Image whose library server is down, or whose `remote.json` was never
- * copied, is still a sheet somewhere on the earth, and the editor's `readProjectContent` has always
- * counted it. Reading `'ready'` here instead made the two apps disagree about what a Project contains,
- * which is the one thing ADR-0026 puts this computation in `core` to prevent.
- */
+/** Framing input: every Layer with its place on earth, hidden ones included. Parsed Alignments count even when the Layer is unreadable. */
 export function toContentLayers(
 	layers: readonly Layer[],
 	documents: ReadDocuments
@@ -188,32 +88,19 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 		};
 	}
 
-	// ── Where on the earth it goes ──────────────────────────────────────────────────────────────
-	//
-	// Read before anything is returned, and **kept even when the rest of the Layer is unreadable**: an
-	// Alignment is where the sheet is, which is a different fact from whether its tiles can be fetched,
-	// and ADR-0026 frames a Project on places. See {@link toContentLayers}.
+	// Placement kept even when the rest fails: a place is not tiles.
 	const placed = await readPlacement(store, imageId);
 	const placement = 'alignment' in placed ? { alignment: placed.alignment } : {};
 
-	// ── Where the tiles are ─────────────────────────────────────────────────────────────────────
-	//
-	// **Reported ahead of the Alignment, so that "this Layer needs the network" survives an Alignment
-	// that will not parse.** The two are independent facts and a Reader is owed the answer either way:
-	// answering it out of the Alignment's success is how the warning quietly stopped appearing for
-	// exactly the Projects most likely to have something wrong with them.
-	//
-	// A local copy needs no address: its tiles are files of this site, and ADR-0011's shim resolves the
-	// `unset.invalid` placeholder in its `info.json` against them. The presence of that file is what says
-	// so — see the module comment on why this is a probe and not a flag.
+	// Referenced-ness reported ahead of the Alignment: the two are independent.
+	// Local tiles need no address; the shim resolves the unset.invalid placeholder against them.
 	const observed = { infoJson: false, remoteJson: false };
 	let service = '';
 	try {
 		await store.read(imageInfoPath(imageId));
 		observed.infoJson = true;
 	} catch (cause) {
-		// A host that did not answer is not a map held elsewhere, and asking a second question of a site
-		// that is not there would only repeat the same failure under a worse sentence.
+		// Unanswered host is not a held-elsewhere map; don't ask it a second question.
 		if (!(cause instanceof PathNotFoundError)) {
 			return {
 				...unreadable(cause, `${named} is aligned, but this site did not answer for its image`),
@@ -227,8 +114,7 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 			observed.remoteJson = true;
 			service = record.service;
 		} catch (second) {
-			// **Not `service: ''`.** See the module comment: `''` here is a blank warped Layer reported as
-			// drawn, which is the defect the module comment describes.
+			// Never service:'': blank warped Layer reported drawn.
 			return {
 				...unreadable(
 					second,
@@ -240,8 +126,7 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 		}
 	}
 
-	// The two observations, handed to the one rule. Both `false` is unreachable here — the second read
-	// failing is a `return` above — so this is `'in-workspace'` or `'referenced'` and never `null`.
+	// Both false unreachable (failure returns above): referenced or in-workspace, never null.
 	const referenced = tileLocation(observed) === 'referenced';
 
 	if (!('alignment' in placed)) {
@@ -256,13 +141,7 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 	return { status: 'ready', alignment: placed.alignment, service, referenced };
 }
 
-/**
- * One map Layer's Alignment, or whatever stopped it being read.
- *
- * The image id comes from the Layer and the Alignment's path is derived from it, so the document's own
- * `resource.id` is never consulted — the same discipline the editor reads an Alignment with, so a file
- * copied under another name cannot claim the image it used to describe.
- */
+/** Alignment by Layer imageId; resource.id never consulted, so a renamed copy claims nothing. */
 async function readPlacement(
 	store: ReadOnlyProjectStore,
 	imageId: string
@@ -283,22 +162,13 @@ async function readAnnotationLayer(
 		const annotations = parseAnnotations(await store.read(`${directory}/${layer.geojsonRef}`));
 		return { status: 'ready', annotations };
 	} catch (cause) {
-		// An Annotation Layer with no file is an ordinary first state — the author made the Layer and has
-		// not drawn in it — so it draws nothing rather than complaining. A file that is *there* and will
-		// not parse is scholarship a Reader is not being shown, which is said.
+		// No file is an ordinary empty Layer; an unparsable file is said.
 		if (cause instanceof PathNotFoundError) return { status: 'ready', annotations: null };
 		return unreadable(cause, `The Annotations in “${layer.name || layer.id}” could not be read`);
 	}
 }
 
-/**
- * One failed read as something a Reader can act on.
- *
- * The host is named when a host is what failed, which is the degradation rule in one line: say so,
- * naming the host; keep the rest of the site working. A Reader on a train and a Reader visiting after a
- * library reorganised both need the name — it is the difference between "the tool is broken" and "that
- * server is down".
- */
+/** Failed read as a Reader sentence; names the host when the host failed, rest of site unaffected. */
 function unreadable(
 	cause: unknown,
 	context: string

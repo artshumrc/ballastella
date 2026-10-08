@@ -5,7 +5,10 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./layout.css": "./src/layout.css"
+		"./layout.css": "./src/layout.css",
+		"./LayerStackMap.svelte": "./src/LayerStackMap.svelte",
+		"./map-view": "./src/map-view.svelte.ts",
+		"./vitest-setup/*": "./vitest-setup/*.ts"
 	},
 	"scripts": {
 		"check": "svelte-check --tsconfig ./tsconfig.json",
@@ -13,7 +16,8 @@
 	},
 	"dependencies": {
 		"@ballastella/core": "workspace:*",
-		"@lucide/svelte": "catalog:"
+		"@lucide/svelte": "catalog:",
+		"maplibre-gl": "catalog:"
 	},
 	"peerDependencies": {
 		"svelte": "catalog:"
@@ -21,6 +25,7 @@
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@testing-library/jest-dom": "catalog:",
+		"daisyui": "catalog:",
 		"happy-dom": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",

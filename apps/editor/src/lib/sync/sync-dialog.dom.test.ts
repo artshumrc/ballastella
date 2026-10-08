@@ -1,51 +1,17 @@
-// The Sync modal at Seam 1c: what a reader sees, and which of the four modes a press asks for.
-//
-// ⚠ **The subject is the screen, never the engine.** Which bytes end up where is Seam 1's, against
-// the shared fake GitHub; what only this seam can say cheaply is that the two columns name Projects
-// and Map Images rather than paths, that every removal either side would suffer is on the screen the
-// author reads before pressing, and that the send affordances are *absent* for somebody who cannot
-// write rather than present and refusing.
+import { flushSync } from 'svelte';
+import { afterEach, describe, expect, test } from 'vitest';
 
-import { flushSync, mount, unmount } from 'svelte';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import type { PathChoice, RemoteSendPlan } from '@ballastella/core';
 
-import type { RemoteSendPlan } from '@ballastella/core';
+import { absent, at, inMain, one, press, show, takeDown, textOf } from '$lib/test-support/dom.js';
 
+import { SyncFailure } from '../remote.svelte.js';
 import SyncDialog from './SyncDialog.svelte';
 import { FakeSyncStorage, asStorage } from './sync-dialog-fake.svelte.js';
-import { at as file, emptyForecast } from './sync-dialog-forecast.js';
+import { at as file, emptyForecast, localPlan } from './sync-dialog-forecast.js';
 
-// The viewer bundle is fetched from the deployment, which neither seam's fence allows and which no
-// claim here is about: the Share Links half is exercised through `hasShareLinks`.
-vi.mock('./viewer-bundle-source', () => ({
-	loadViewerBundle: async () => ({ version: 'test', files: [] }),
-	readBundleAsset: async () => new Uint8Array(0)
-}));
+afterEach(takeDown);
 
-let mounted: Record<string, unknown> | undefined;
-
-afterEach(() => {
-	if (mounted) unmount(mounted);
-	mounted = undefined;
-	document.body.innerHTML = '';
-});
-
-beforeEach(() => {
-	// `showModal` is not implemented in jsdom, and `ModalDialog` calls it on open.
-	HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
-		this.open = true;
-	};
-	HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
-		this.open = false;
-	};
-});
-
-/**
- * Let the modal's opening pass finish. Its length varies with what the forecast finds — a Remote
- * carrying a site this Workspace has not got is re-planned, which is two more awaited reads — so
- * each turn yields to the macrotask queue, draining whatever the last one chained, rather than
- * counting a fixed number of microtasks.
- */
 async function settle(): Promise<void> {
 	for (let turn = 0; turn < 3; turn += 1) {
 		await new Promise((resolve) => setTimeout(resolve, 0));
@@ -53,123 +19,121 @@ async function settle(): Promise<void> {
 	}
 }
 
-const el = (testid: string): HTMLElement | null =>
-	document.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+const text = (testid: string): string => textOf(one(testid));
 
-const shown = (testid: string): HTMLElement => {
-	const found = el(testid);
-	if (found === null) throw new Error(`no [data-testid="${testid}"] on screen`);
-	return found;
-};
+const modes = (storage: FakeSyncStorage) => storage.syncs.map(({ mode }) => mode);
 
-const absent = (testid: string): boolean => el(testid) === null;
-
-const text = (testid: string): string =>
-	(el(testid)?.textContent ?? '').replace(/\s+/g, ' ').trim();
-
-const press = (testid: string): void => {
-	shown(testid).click();
-	flushSync();
-};
-
-/** Open the modal over a fake, and let its opening pass finish. */
 async function open(storage: FakeSyncStorage = new FakeSyncStorage()): Promise<FakeSyncStorage> {
-	const main = document.createElement('main');
-	document.body.append(main);
-	mounted = mount(SyncDialog, {
-		target: main,
-		props: { storage: asStorage(storage), open: true }
-	});
-	flushSync();
+	show(SyncDialog, { storage: asStorage(storage), open: true }, inMain());
 	await settle();
 	return storage;
 }
 
-/** A Workspace holding a Project the Remote has not got: something to send and nothing to get. */
-const somethingToSend = (): FakeSyncStorage => {
-	const storage = new FakeSyncStorage();
-	storage.session.projects = [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never];
-	storage.session.forecast = emptyForecast({
-		unchanged: false,
-		files: [file('amsterdam-1625/project.json')],
-		outgoing: [{ path: 'amsterdam-1625/project.json', sha: 'a'.repeat(40), effect: 'add' }],
-		uploads: 1,
-		uploadBytes: 12
-	});
-	return storage;
-};
+async function pressAndSettle(...testids: string[]): Promise<void> {
+	for (const testid of testids) {
+		press(testid);
+		await settle();
+	}
+}
 
-/** A Remote holding a Project this Workspace has not got: something to get and nothing to send. */
-const somethingToGet = (): FakeSyncStorage => {
+const AMSTERDAM = { directory: 'amsterdam-1625', name: 'Amsterdam 1625' };
+
+const choice = (path: string, digit: string, effect: PathChoice['effect'] = 'add'): PathChoice => ({
+	path,
+	sha: effect === 'delete' ? null : digit.repeat(40),
+	effect
+});
+
+const conflict = (path: string) => ({
+	path,
+	comparison: 'conflict' as const,
+	baseline: 'a'.repeat(40),
+	local: 'b'.repeat(40),
+	remote: 'c'.repeat(40)
+});
+
+function storageWith(
+	forecast: Partial<RemoteSendPlan>,
+	projects: readonly { directory: string; name: string }[] = []
+): FakeSyncStorage {
 	const storage = new FakeSyncStorage();
-	storage.session.forecast = emptyForecast({
-		incoming: [{ path: 'delft/project.json', sha: 'b'.repeat(40), effect: 'add' }],
+	storage.session.projects = projects as never;
+	storage.forecast = emptyForecast(forecast);
+	return storage;
+}
+
+const somethingToSend = (): FakeSyncStorage =>
+	storageWith(
+		{
+			unchanged: false,
+			files: [file('amsterdam-1625/project.json')],
+			outgoing: [choice('amsterdam-1625/project.json', 'a')],
+			uploads: 1,
+			uploadBytes: 12
+		},
+		[AMSTERDAM]
+	);
+
+const somethingToGet = (): FakeSyncStorage =>
+	storageWith({
+		incoming: [choice('delft/project.json', 'b')],
 		leftAlone: ['delft/project.json']
 	});
-	return storage;
-};
+
+const somethingBothWays = (): FakeSyncStorage =>
+	storageWith(
+		{
+			unchanged: false,
+			incoming: [choice('delft/project.json', 'b')],
+			outgoing: [choice('amsterdam-1625/project.json', 'a')]
+		},
+		[AMSTERDAM]
+	);
+
+const sendForecast = (storage: FakeSyncStorage) => storage.forecast as RemoteSendPlan;
 
 describe('the sync modal', () => {
-	test('reads both sides and moves nothing', async () => {
-		const storage = await open(somethingToGet());
-
-		expect(shown('to-get')).toBeTruthy();
-		expect(storage.gets).toEqual([]);
-		expect(storage.session.sends).toEqual([]);
-		expect(storage.session.siteWrites).toBe(0);
-	});
-
-	// ⚠ **The claim the whole modal exists for.** A Sync of one map is four thousand paths; a column
-	// listing them is not a decision anybody can take (ADR-0044).
 	test('names Projects and Map Images, and puts no path on the screen', async () => {
-		const storage = new FakeSyncStorage();
-		storage.session.projects = [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never];
-		storage.session.forecast = emptyForecast({
-			unchanged: false,
-			incoming: [
-				{ path: 'images/map-1/info.json', sha: 'b'.repeat(40), effect: 'add' },
-				{ path: 'images/map-1/0/0/0.jpg', sha: 'c'.repeat(40), effect: 'add' }
-			],
-			outgoing: [
-				{ path: 'amsterdam-1625/project.json', sha: 'a'.repeat(40), effect: 'add' },
-				{ path: 'amsterdam-1625/annotations/notes.json', sha: 'd'.repeat(40), effect: 'add' }
-			]
-		});
-		await open(storage);
+		const paths = [
+			'images/map-1/info.json',
+			'images/map-1/0/0/0.jpg',
+			'amsterdam-1625/project.json',
+			'amsterdam-1625/annotations/notes.json'
+		];
+		await open(
+			storageWith(
+				{
+					unchanged: false,
+					incoming: [choice(paths[0], 'b'), choice(paths[1], 'c')],
+					outgoing: [choice(paths[2], 'a'), choice(paths[3], 'd')]
+				},
+				[AMSTERDAM]
+			)
+		);
 
 		expect(text('to-get')).toContain('map-1');
 		expect(text('to-get')).toContain('2 files');
 		expect(text('to-send')).toContain('Amsterdam 1625');
 		expect(text('to-send')).toContain('2 files');
-		// The negative that keeps four thousand unintelligible lines off the screen: not one of the
-		// six paths behind those two lines is anywhere on it.
-		for (const path of [
-			'images/map-1/info.json',
-			'images/map-1/0/0/0.jpg',
-			'amsterdam-1625/project.json',
-			'amsterdam-1625/annotations/notes.json'
-		]) {
-			expect(text('sync-modal')).not.toContain(path);
-		}
+		for (const path of paths) expect(text('sync-modal')).not.toContain(path);
 	});
 
-	// ⚠ **Every removal either side would suffer, on the screen the author is already reading**
-	// (Story 7). A deletion discovered after a press is the failure this shape exists to prevent, and
-	// both the inbound and the outbound preview folded into these two lines.
 	test('gives each column a Removals line of its own', async () => {
-		const storage = new FakeSyncStorage();
-		storage.session.projects = [{ directory: 'delft', name: 'Delft 1650' } as never];
-		storage.session.forecast = emptyForecast({
-			unchanged: false,
-			incoming: [{ path: 'delft/annotations/l3.geojson', sha: null, effect: 'delete' }],
-			outgoing: [{ path: 'delft/project.json', sha: 'a'.repeat(40), effect: 'keep' }],
-			removed: ['images/map-9/info.json']
-		});
-		await open(storage);
+		await open(
+			storageWith(
+				{
+					unchanged: false,
+					incoming: [choice('delft/annotations/l3.geojson', '', 'delete')],
+					outgoing: [choice('delft/project.json', 'a', 'keep')],
+					removed: ['images/map-9/info.json']
+				},
+				[{ directory: 'delft', name: 'Delft 1650' }]
+			)
+		);
 
-		expect(shown('to-get-removals')).toBeTruthy();
+		expect(at('to-get-removals')).toBeTruthy();
 		expect(text('to-get')).toContain('Delft 1650');
-		expect(shown('to-send-removals')).toBeTruthy();
+		expect(at('to-send-removals')).toBeTruthy();
 		expect(text('to-send')).toContain('map-9');
 	});
 
@@ -177,290 +141,166 @@ describe('the sync modal', () => {
 		await open();
 
 		expect(text('sync-nothing-to-do')).toContain('Nothing needs changing');
-		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('true');
-		expect(shown('sync-send').getAttribute('aria-disabled')).toBe('true');
+		expect(at('sync-get').getAttribute('aria-disabled')).toBe('true');
+		expect(at('sync-send').getAttribute('aria-disabled')).toBe('true');
 	});
 });
 
 describe('the sync modal’s four choices', () => {
-	test('gets only, without sending anything', async () => {
-		const storage = await open(somethingToGet());
+	test.each([
+		['gets only', somethingToGet, 'get'],
+		['sends only', somethingToSend, 'send'],
+		['gets and then sends, as one press', somethingBothWays, 'both']
+	])('reads both sides, moving nothing until pressed, and then %s', async (_, fixture, mode) => {
+		const storage = await open(fixture());
+		expect(storage.syncs).toEqual([]);
 
-		press('sync-get');
-		await settle();
+		await pressAndSettle(`sync-${mode}`);
 
-		expect(storage.gets).toHaveLength(1);
-		expect(storage.session.sends).toEqual([]);
+		expect(modes(storage)).toEqual([mode]);
 	});
 
-	test('sends only, without getting anything', async () => {
-		const storage = await open(somethingToSend());
-
-		press('sync-send');
-		await settle();
-
-		expect(storage.session.sends).toEqual([{ overwrite: undefined }]);
-		expect(storage.gets).toEqual([]);
-	});
-
-	// ⚠ **Two transactions in order, and the second is unattempted when the first fails.** Getting
-	// keeps the inbound crash-recovery protocol and sending keeps the single-commit property; folded
-	// into one they would have neither.
-	test('gets and then sends, as one press', async () => {
-		const storage = new FakeSyncStorage();
-		storage.session.projects = [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never];
-		storage.session.forecast = emptyForecast({
-			unchanged: false,
-			incoming: [{ path: 'delft/project.json', sha: 'b'.repeat(40), effect: 'add' }],
-			outgoing: [{ path: 'amsterdam-1625/project.json', sha: 'a'.repeat(40), effect: 'add' }]
-		});
+	test.each([
+		[false, false, []],
+		[true, true, ['brought in first and is still here', 'The website itself was written']]
+	])('says why the Sync stopped (got %s, written %s)', async (got, written, said) => {
+		const storage = somethingBothWays();
+		storage.outcome = new SyncFailure(new Error('GitHub could not be reached.'), got, written);
 		await open(storage);
 
-		press('sync-both');
-		await settle();
+		await pressAndSettle('sync-both');
 
-		expect(storage.gets).toHaveLength(1);
-		expect(storage.session.sends).toHaveLength(1);
+		for (const phrase of ['could not be reached', ...said]) {
+			expect(text('sync-modal')).toContain(phrase);
+		}
+		if (!got) expect(text('sync-modal')).not.toContain('brought in first');
 	});
 
-	test('leaves the send unattempted when the get fails', async () => {
-		const storage = new FakeSyncStorage();
-		storage.session.projects = [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never];
-		storage.session.forecast = emptyForecast({
-			unchanged: false,
-			incoming: [{ path: 'delft/project.json', sha: 'b'.repeat(40), effect: 'add' }],
-			outgoing: [{ path: 'amsterdam-1625/project.json', sha: 'a'.repeat(40), effect: 'add' }]
-		});
-		storage.getAnswer = new Error('GitHub could not be reached.');
-		await open(storage);
-
-		press('sync-both');
-		await settle();
-
-		expect(storage.session.sends).toEqual([]);
-		// Said inside the modal, which is still open: the send has not happened and the author is
-		// still looking at the screen that would have started it.
-		expect(text('sync-modal')).toContain('could not be reached');
-	});
-
-	// ⚠ **Overwrite names what it would remove before it will proceed** (Story 15), and the paths it
-	// names travel with the press so the engine cannot apply the answer to a set nobody agreed to.
 	test('names what an overwrite would remove, and carries those paths to the engine', async () => {
-		const storage = new FakeSyncStorage();
-		storage.session.forecast = emptyForecast({
-			unchanged: false,
-			overwrites: ['florida-1657/project.json'],
-			incoming: [{ path: 'florida-1657/project.json', sha: 'b'.repeat(40), effect: 'add' }]
-		});
-		await open(storage);
+		const storage = await open(
+			storageWith({
+				unchanged: false,
+				overwrites: ['florida-1657/project.json'],
+				incoming: [choice('florida-1657/project.json', 'b')]
+			})
+		);
 
 		expect(text('sync-overwrite-removals')).toContain('florida-1657');
-		press('sync-arm-overwrite');
-		await settle();
-		press('sync-overwrite');
-		await settle();
+		await pressAndSettle('sync-arm-overwrite', 'sync-overwrite');
 
-		expect(storage.session.sends).toEqual([{ overwrite: ['florida-1657/project.json'] }]);
+		expect(storage.syncs).toMatchObject([
+			{ mode: 'overwrite', overwrite: ['florida-1657/project.json'] }
+		]);
 	});
 
-	// ⚠ **A second press rather than a louder first one** (Story 16). On a solo repository an
-	// overwrite can only discard the author's own work; on a shared one it deletes a colleague's.
 	test('demands a confirmation before overwriting a repository that is not solely the author’s', async () => {
 		const storage = somethingToSend();
 		storage.sharing = { shared: true, known: true, owner: 'ada', others: ['grace'] };
 		await open(storage);
 
-		press('sync-arm-overwrite');
-		await settle();
-
+		await pressAndSettle('sync-arm-overwrite');
 		expect(text('sync-shared-remote')).toContain('grace');
-		// The replaced version is still in the history — said, and not offered as a remedy.
 		expect(text('sync-shared-remote')).toContain("repository's history");
 		expect(absent('sync-overwrite')).toBe(true);
 
-		press('confirm-shared-overwrite');
-		await settle();
-		press('sync-overwrite');
-		await settle();
-
-		expect(storage.session.sends).toHaveLength(1);
-	});
-
-	test('lets the shared-Remote question be answered no, leaving everything as it was', async () => {
-		const storage = somethingToSend();
-		storage.sharing = { shared: true, known: true, owner: 'ada', others: ['grace'] };
-		await open(storage);
-
-		press('sync-arm-overwrite');
-		await settle();
 		press('cancel-shared-overwrite');
-
 		expect(absent('sync-shared-remote')).toBe(true);
 		expect(absent('sync-overwrite')).toBe(true);
-		expect(storage.session.sends).toEqual([]);
+		expect(storage.syncs).toEqual([]);
+
+		await pressAndSettle('sync-arm-overwrite', 'confirm-shared-overwrite', 'sync-overwrite');
+		expect(modes(storage)).toEqual(['overwrite']);
 	});
 });
 
+const expectNoSendAffordance = (): void => {
+	for (const testid of ['sync-send', 'sync-both', 'sync-arm-overwrite']) {
+		expect(absent(testid)).toBe(true);
+	}
+};
+
 describe('the sync modal for somebody who cannot write', () => {
-	/** A read-only collaborator: signed in, and GitHub says this account may not push. */
 	const readOnly = (): FakeSyncStorage => {
 		const storage = somethingToGet();
-		storage.rights = { canPush: false };
+		storage.canSend = false;
 		return storage;
 	};
 
-	// ⚠ **Absent rather than present-and-refusing** (Story 50). A control that will certainly refuse
-	// is worse than its absence.
-	test('offers no send affordance at all', async () => {
-		await open(readOnly());
-
-		expect(absent('sync-send')).toBe(true);
-		expect(absent('sync-both')).toBe(true);
-		expect(absent('sync-arm-overwrite')).toBe(true);
+	test('offers no send affordance at all, but shows what there is to get, and gets it', async () => {
+		const storage = await open(readOnly());
+		expectNoSendAffordance();
 		expect(absent('to-send')).toBe(true);
 		expect(text('sync-read-only')).toContain('cannot write to it');
-	});
-
-	// The comparison is still made: refusing to plan at all would leave them looking at nothing where
-	// the *To get* column belongs.
-	test('still shows what there is to get, and can get it', async () => {
-		const storage = await open(readOnly());
-
-		expect(storage.session.forecasts).toEqual([{ sending: false }]);
 		expect(text('to-get')).toContain('delft');
 
-		press('sync-get');
-		await settle();
+		await pressAndSettle('sync-get');
 
-		expect(storage.gets).toHaveLength(1);
+		expect(modes(storage)).toEqual(['get']);
 	});
 
 	test('does not mistake an unreadable rights check for read-only access', async () => {
 		const storage = somethingToGet();
-		storage.rights = new Error('GitHub could not be reached.');
+		storage.canSend = null;
 
 		await open(storage);
 
 		expect(absent('sync-read-only')).toBe(true);
-		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
+		expect(at('sync-get').getAttribute('aria-disabled')).toBe('false');
 	});
 });
 
-// ⚠ **Getting needs no credential, and this is where that property is held** (ADR-0044). A public
-// repository is readable by anyone, so a student with no GitHub account connects to their
-// instructor's repository and presses *Get changes* — and the three affordances that send are
-// absent rather than present-and-refusing.
 describe('the sync modal with nobody signed in', () => {
-	/** A student who has signed up for nothing, whose Workspace belongs to a public repository. */
 	const signedOut = (): FakeSyncStorage => {
 		const storage = somethingToGet();
 		storage.signedIn = false;
-		storage.credential = null;
+		storage.canSend = false;
 		return storage;
 	};
 
-	test('reads both sides anyway, and offers the get', async () => {
+	test('reads both sides and gets, offering no send and saying the sign-in is what it needs', async () => {
 		const storage = await open(signedOut());
-
-		// Planned without a credential and not in order to send, which is what skips the push check.
-		expect(storage.session.forecasts).toEqual([{ sending: false }]);
 		expect(text('to-get')).toContain('delft');
-		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
-	});
-
-	test('offers no send affordance at all, and says the sign-in is what sending needs', async () => {
-		await open(signedOut());
-
-		expect(absent('sync-send')).toBe(true);
-		expect(absent('sync-both')).toBe(true);
-		expect(absent('sync-arm-overwrite')).toBe(true);
+		expect(at('sync-get').getAttribute('aria-disabled')).toBe('false');
+		expectNoSendAffordance();
 		expect(text('sync-sign-in-needed')).toContain('Getting from');
-	});
 
-	test('gets, with no credential read on the way', async () => {
-		const storage = await open(signedOut());
+		await pressAndSettle('sync-get');
 
-		press('sync-get');
-		await settle();
-
-		expect(storage.gets).toHaveLength(1);
-		expect(storage.credential).toBeNull();
+		expect(modes(storage)).toEqual(['get']);
 	});
 });
 
-/** A Workspace and its Remote that have both moved the same Map Image's Alignment. */
-const contestedAlignment = (): FakeSyncStorage => {
-	const storage = new FakeSyncStorage();
-	storage.session.forecast = emptyForecast({
-		unchanged: false,
-		conflicts: [
-			{
-				path: 'alignments/map-1.json',
-				comparison: 'conflict',
-				baseline: 'a'.repeat(40),
-				local: 'b'.repeat(40),
-				remote: 'c'.repeat(40)
-			}
-		],
-		overwrites: []
-	});
-	return storage;
-};
-
 describe('the sync modal’s Conflicts', () => {
-	const contested = (): FakeSyncStorage => {
-		const storage = new FakeSyncStorage();
-		storage.session.projects = [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never];
-		storage.session.forecast = emptyForecast({
-			unchanged: false,
-			conflicts: [
+	test('names the contested Project, says GitHub’s arrives unmerged beside it, and stops neither direction', async () => {
+		await open(
+			storageWith(
 				{
-					path: 'amsterdam-1625/annotations/notes.json',
-					comparison: 'conflict',
-					baseline: 'a'.repeat(40),
-					local: 'b'.repeat(40),
-					remote: 'c'.repeat(40)
-				}
-			],
-			overwrites: []
-		});
-		return storage;
-	};
-
-	test('names what is contested, and by the Project rather than the path', async () => {
-		await open(contested());
+					unchanged: false,
+					conflicts: [conflict('amsterdam-1625/annotations/notes.json')],
+					overwrites: []
+				},
+				[AMSTERDAM]
+			)
+		);
 
 		expect(text('sync-conflicts')).toContain('Amsterdam 1625');
 		expect(text('sync-conflicts')).not.toContain('amsterdam-1625/annotations/notes.json');
-	});
-
-	// ⚠ **It says what getting will make, and that nothing is merged** (ADR-0046). A notice that only
-	// reported the collision would leave the scholar looking for the choice they have to make, and the
-	// choice they used to be given was *Overwrite the repository* — the one destructive control there
-	// is, reached by an obstruction they could not otherwise clear.
-	test('says GitHub’s version arrives beside the author’s, named and unmerged', async () => {
-		await open(contested());
-
 		expect(text('sync-conflicts')).toContain('(from GitHub)');
 		expect(text('sync-conflicts')).toContain('Nothing is combined');
-	});
-
-	test('stops neither direction', async () => {
-		await open(contested());
-
-		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
-		expect(shown('sync-send').getAttribute('aria-disabled')).toBe('false');
-		expect(shown('sync-both').getAttribute('aria-disabled')).toBe('false');
+		for (const testid of ['sync-get', 'sync-send', 'sync-both']) {
+			expect(at(testid).getAttribute('aria-disabled')).toBe('false');
+		}
 	});
 });
 
-// ⚠ **The one question in the product**, and the only Conflict without a copy: there is exactly one
-// Alignment per Map Image (ADR-0023), so a second file would be referenced by nothing and drawn
-// nowhere (ADR-0046).
 describe('the sync modal’s Alignment question', () => {
 	const twoAlignments = (): FakeSyncStorage => {
-		const storage = contestedAlignment();
-		storage.session.alignmentQuestions = [
+		const storage = storageWith({
+			unchanged: false,
+			conflicts: [conflict('alignments/map-1.json')],
+			overwrites: []
+		});
+		storage.questions = [
 			{
 				imageId: 'map-1',
 				path: 'alignments/map-1.json',
@@ -471,48 +311,34 @@ describe('the sync modal’s Alignment question', () => {
 		return storage;
 	};
 
-	test('shows each side’s control point count and date', async () => {
-		await open(twoAlignments());
-
+	test('shows each side’s count and date, offers the get unanswered, and carries the answer to it', async () => {
+		const storage = await open(twoAlignments());
 		const question = text('sync-alignment-question');
 		expect(question).toContain('3 control points');
 		expect(question).toContain('12 control points');
 		expect(question).toContain(new Date('2026-08-30T09:00:00Z').getFullYear().toString());
 		expect(question).toContain('Keep mine');
 		expect(question).toContain('Take the one from GitHub');
-	});
+		expect(at('sync-get').getAttribute('aria-disabled')).toBe('false');
+		at('sync-alignment-question').querySelectorAll('input')[1]?.click();
+		await pressAndSettle('sync-get');
 
-	test('carries the answer to the get, and getting is offered unanswered', async () => {
-		const storage = twoAlignments();
-		await open(storage);
-
-		expect(shown('sync-get').getAttribute('aria-disabled')).toBe('false');
-		const chooseTheirs = shown('sync-alignment-question').querySelectorAll('input')[1];
-		chooseTheirs?.click();
-		press('sync-get');
-		await settle();
-
-		expect([...(storage.getChoices[0] ?? new Map())]).toEqual([
-			['alignments/map-1.json', 'take-theirs']
-		]);
+		expect(storage.syncs[0]?.choices).toEqual([['alignments/map-1.json', 'take-theirs']]);
 	});
 });
 
 describe('the sync modal’s three budgets', () => {
 	test('says what would move and what this hour has left, before anything is pressed', async () => {
-		const storage = somethingToSend();
-		await open(storage);
+		await open(somethingToSend());
 
 		expect(text('sync-budget')).toContain('1 of 1 files');
 		expect(text('sync-budget')).toContain('Requests this hour: 4800 left');
 	});
 
-	// A corporate proxy strips the rate-limit headers, and a budget silently read as nought turns
-	// every later 403 into "wait for the reset".
 	test('says the request budget is unavailable rather than naming a number it does not have', async () => {
 		const storage = somethingToSend();
-		storage.session.forecast = emptyForecast({
-			...(storage.session.forecast as ReturnType<typeof emptyForecast>),
+		storage.forecast = emptyForecast({
+			...sendForecast(storage),
 			requestsRemaining: null,
 			requestsResetAt: null
 		});
@@ -523,103 +349,18 @@ describe('the sync modal’s three budgets', () => {
 });
 
 describe('the sync modal and Share Links', () => {
-	// ⚠ **The viewer is written only where there is already a site** (ADR-0045). Having Share Links
-	// *is* carrying the viewer file set, so writing it here would grant them — silently, on a press
-	// about GitHub.
-	test('writes no viewer into a Workspace that has not asked for Share Links', async () => {
-		const storage = await open(somethingToSend());
-
-		press('sync-send');
-		await settle();
-
-		expect(storage.session.siteWrites).toBe(0);
-	});
-
-	// ⚠ **And no front-page question either, here or with Share Links on.** Which Projects a Reader
-	// meets first is set in a Project's own settings and nowhere else (ADR-0045); a list of every
-	// Project offered at the moment of a Sync is the second place that made a scholar unsure which
-	// one won.
-	test('writes the viewer where the Workspace has Share Links, and asks nothing about the front page', async () => {
+	test.each([
+		['no site from a Workspace that has not asked for Share Links', null],
+		['the site it showed, and asks nothing about the front page', localPlan()]
+	])('hands the send %s', async (_, plan) => {
 		const storage = somethingToSend();
-		storage.shareLinks = true;
+		storage.plan = plan;
 		await open(storage);
-
+		expect(absent('sync-site-breakdown')).toBe(plan === null);
 		expect(absent('sync-project-selection')).toBe(true);
-		press('sync-send');
-		await settle();
 
-		expect(storage.session.siteWrites).toBe(1);
-	});
+		await pressAndSettle('sync-send');
 
-	// ⚠ **A Workspace got from a Remote that has Share Links has them, and its first Sync must keep
-	// the site rather than take it down** (ADR-0045). A get brings the source namespace and nothing
-	// else, so this Workspace carries no viewer files at all — and the send that follows mirrors the
-	// owned namespace, so without writing the viewer first it would remove `index.html` and `_app/**`
-	// from a live site, breaking every link already handed out.
-	test('writes the viewer where the Remote carries a site this Workspace has not got', async () => {
-		const storage = somethingToSend();
-		storage.shareLinks = false;
-		storage.session.forecast = emptyForecast({
-			...(storage.session.forecast as RemoteSendPlan),
-			shareLinks: true
-		});
-		await open(storage);
-
-		press('sync-send');
-		await settle();
-
-		expect(storage.session.siteWrites).toBe(1);
-	});
-
-	// ⚠ **And the one state that means the opposite.** The same pair of facts — the Remote carries a
-	// site, this Workspace does not — is what a withdrawal looks like on the Sync that carries it out.
-	// Only the author's own asking tells the two apart, which is why it is recorded rather than read
-	// off the files.
-	test('writes no viewer where the author has asked for the site to come down', async () => {
-		const storage = somethingToSend();
-		storage.shareLinks = false;
-		storage.withdrawing = true;
-		storage.session.forecast = emptyForecast({
-			...(storage.session.forecast as RemoteSendPlan),
-			shareLinks: true
-		});
-		await open(storage);
-
-		press('sync-send');
-		await settle();
-
-		expect(storage.session.siteWrites).toBe(0);
-		expect(storage.withdrawalsFinished).toBe(1);
-	});
-
-	// ⚠ **A `both` rebuilds the site from the Workspace the get left behind, not from the one the
-	// columns were drawn from** (Story 63). The record names every Project the Workspace holds, so a
-	// record written from the earlier plan leaves out what the get has just brought in — and the send
-	// that follows puts it over the record the other machine wrote, taking a Project off the front
-	// page on the very Sync that fetched it.
-	test('rebuilds the site from what the get brought in, on a get and send in one press', async () => {
-		const storage = new FakeSyncStorage();
-		storage.shareLinks = true;
-		storage.session.projects = [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never];
-		storage.session.forecast = emptyForecast({
-			unchanged: false,
-			incoming: [{ path: 'delft/project.json', sha: 'b'.repeat(40), effect: 'add' }],
-			outgoing: [{ path: 'amsterdam-1625/project.json', sha: 'a'.repeat(40), effect: 'add' }]
-		});
-		// What a get does to a Workspace: the Project list it leaves behind has the new one in it.
-		storage.getFromRemote = async () => {
-			storage.gets.push(storage.gets.length);
-			storage.session.projects = [
-				{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' } as never,
-				{ directory: 'delft', name: 'Delft' } as never
-			];
-			return { added: ['delft/project.json'], replaced: [], removed: [] } as never;
-		};
-		await open(storage);
-
-		press('sync-both');
-		await settle();
-
-		expect(storage.session.siteProjectsWritten).toEqual([['amsterdam-1625', 'delft']]);
+		expect(storage.syncs[0]?.site).toEqual(plan);
 	});
 });

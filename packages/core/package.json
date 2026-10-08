@@ -6,11 +6,12 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./render": "./src/render/index.ts",
-		"./test-fence": "./vitest-setup/refuse-network.ts"
+		"./test-fence": "./vitest-setup/refuse-network.ts",
+		"./testing": "./src/testing.ts"
 	},
 	"scripts": {
 		"check": "tsc --noEmit",
-		"test": "playwright install chromium firefox && vitest run"
+		"test": "playwright install chromium && vitest run"
 	},
 	"dependencies": {
 		"@allmaps/annotation": "catalog:",

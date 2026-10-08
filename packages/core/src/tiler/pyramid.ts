@@ -1,58 +1,16 @@
-// The shape of a level-0 IIIF pyramid: what files exist, and what each one must contain.
-//
-// This module is the writer's half of the contract ADR-0003 sets up, and it is deliberately
-// pure — no bytes, no store, no canvas. Given an image's dimensions it says exactly which
-// files a complete pyramid has and what region of the source, at what size, belongs in each.
-// The two tilers differ only in how they turn a region into pixels.
-//
-// **Every tile's region and size comes from `@allmaps/iiif-parser`'s
-// `Image#getTileImageRequest`, and every tile's path from its `Image#getImageUrl`.** Not from
-// arithmetic here. The image pane reads the pyramid through the same two functions, so
-// reader and writer cannot disagree about what a tile is or where it lives — which is the
-// entire reason ADR-0003 names that function rather than describing the geometry in prose.
-
 import { Image } from '@allmaps/iiif-parser';
 import type { Region, SizeObject } from '@allmaps/types';
 
-import type { StorePath } from '../store/project-store.js';
+import { isRecord, type StorePath } from '../store/project-store.js';
 
-/**
- * Tile side, in pixels. **Square** (ADR-0003): `getTileZoomLevelFromScaleFactor` falls back to
- * `tileset.height || tileset.width`, so a non-square tileset whose `height` is dropped from
- * `info.json` is silently read back at the wrong shape. Square tiles make that pitfall
- * unreachable. 256 is also what MapLibre expects of a raster source by default.
- */
 export const PYRAMID_TILE_SIZE = 256;
-
-/**
- * JPEG quality for tiles, as a percentage.
- *
- * One constant for both tilers, because a user must not be able to tell which one ran by
- * looking at the result. 85 is the usual archival-web compromise: the ringing it leaves around
- * engraved linework is below what matters for placing a Control Point, and a gigapixel scan at
- * a higher setting is a Workspace that runs into ADR-0008's ~1 GB static-hosting cliff much
- * sooner.
- */
 export const TILE_JPEG_QUALITY = 85;
-
-/** The media type every tile is written as. IIIF's `default.jpg`, per the ADR-0003 contract. */
 export const TILE_MEDIA_TYPE = 'image/jpeg';
-
-/**
- * The origin of the deliberately unusable `id` every generated `info.json` carries (ADR-0004).
- *
- * `.invalid` is reserved by RFC 2606, so DNS always fails: a code path that forgets to override
- * `Image#uri` at load time fails loudly instead of quietly fetching somebody else's tiles. It
- * is an `https:` URL rather than a `urn:` because `Image3Schema` validates `id` with
- * `z.string().url()` and a URN parses under some zod versions and not others.
- */
 export const IMAGE_SERVICE_PLACEHOLDER_ORIGIN = 'https://unset.invalid';
 
-/** The placeholder `id` written into `info.json` for a locally ingested image. */
 export const imageServiceId = (imageId: string): string =>
 	`${IMAGE_SERVICE_PLACEHOLDER_ORIGIN}/${imageId}`;
 
-/** A level-0 IIIF Image API 3.0 image information document. */
 export type Level0ImageInfo = {
 	'@context': 'http://iiif.io/api/image/3/context.json';
 	id: string;
@@ -64,41 +22,15 @@ export type Level0ImageInfo = {
 	tiles: [{ width: number; height: number; scaleFactors: number[] }];
 };
 
-/** One tile of the pyramid: where its pixels come from, and where its bytes go. */
 export type PlannedTile = {
 	readonly scaleFactor: number;
 	readonly column: number;
 	readonly row: number;
-	/** The region of the **source** image this tile covers, in source pixels. */
 	readonly region: Region;
-	/**
-	 * The size the tile must be served at, in pixels — `ceil(region / scaleFactor)` for a ragged
-	 * tile at the right or bottom margin.
-	 *
-	 * IIIF Image API 3.0 `size=w,h` means the returned image **is** exactly `w` by `h`: an exact
-	 * resize of the whole region onto those dimensions. The image pane draws the tile at
-	 * `region / scaleFactor` — 106.375 rather than the served 107 — which is only the right
-	 * placement if the file's full extent is the region's full extent. A tiler that instead
-	 * scaled by exactly 1 / scaleFactor and padded the leftover fraction, or that scaled to
-	 * `floor` and padded, would leave every ragged tile in every Map Image stretched by up
-	 * to 0.6% at the right and bottom margins: sub-pixel, systematic, in the margins, and
-	 * invisible to any test that only checks coordinates. Both tilers assert this property
-	 * directly rather than inheriting it.
-	 */
 	readonly size: SizeObject;
-	/** Where the tile's bytes go, relative to the workspace root. */
 	readonly path: StorePath;
 };
 
-/**
- * The scale factors a complete pyramid needs: `1, 2, 4, …` up to the first factor at which the
- * whole image fits in a single tile.
- *
- * Contiguous and starting at 1 because `createImagePane` refuses anything else —
- * the map's zoom range is derived from the coarsest level down, so a gap is a zoom that renders
- * blank with nothing anywhere to say why. Ending at one tile because that is the level the pane
- * shows when the whole image is in view; going further would add levels no zoom can reach.
- */
 export function pyramidScaleFactors(
 	dimensions: { width: number; height: number },
 	tileSize = PYRAMID_TILE_SIZE
@@ -113,7 +45,6 @@ export function pyramidScaleFactors(
 	return factors;
 }
 
-/** The `info.json` for a locally ingested image (ADR-0003, ADR-0004). */
 export function buildImageInfo({
 	imageId,
 	width,
@@ -137,8 +68,6 @@ export function buildImageInfo({
 		profile: 'level0',
 		width,
 		height,
-		// `height` is written even though it equals `width`, because omitting it is only safe while
-		// the tiles stay square and this file is what a stranger's IIIF client reads.
 		tiles: [
 			{
 				width: tileSize,
@@ -149,14 +78,6 @@ export function buildImageInfo({
 	};
 }
 
-/**
- * Every tile a complete pyramid contains, coarsest level last.
- *
- * `directory` is where the pyramid lives in the store. It is spliced in as the parsed image's
- * `uri` so that the paths come out of `Image#getImageUrl` — the same function that builds the
- * URLs the image pane fetches — rather than out of a second implementation of IIIF's URL
- * syntax that could drift from the first.
- */
 export function planPyramid(info: unknown, directory: StorePath): PlannedTile[] {
 	const image = Image.parse(info);
 	image.uri = directory.replace(/\/$/, '');
@@ -190,49 +111,14 @@ export function planPyramid(info: unknown, directory: StorePath): PlannedTile[] 
 	);
 }
 
-/**
- * The pixel dimensions a stored `info.json` declares, or `null` when it declares none.
- *
- * **What it is for**: adding a Map Image that is already in the Workspace to another Project. That
- * gesture writes no pyramid and copies no bytes, but it still has to be able to give the map a
- * starter Alignment if it has none — and a starter Alignment's Resource Mask is the whole sheet, so
- * it needs the sheet's size. The one record of that size, for a map whose tiles are here, is the
- * `info.json` the ingest wrote.
- *
- * **`null` rather than a guess, and never a zero.** A Resource Mask over a 0 × 0 rectangle is an
- * Alignment that can never be solved and a Layer that draws nothing, with nothing on screen saying
- * why; a caller that cannot find the size has to say so instead. That is the same refusal
- * `parseServedImageInfo` makes in the viewer, for the same reason, and this is deliberately the
- * narrow half of it: two facts, no tile geometry, so it stays usable on any `info.json` this build
- * or a later one wrote.
- *
- * Indifferent to every other member, including the ones this build writes: a document from a newer
- * version must still be readable (ADR-0010's tolerance, in the direction that costs nothing).
- */
 export function imageSizeFromInfo(info: unknown): { width: number; height: number } | null {
-	if (typeof info !== 'object' || info === null || Array.isArray(info)) return null;
-	const record = info as Record<string, unknown>;
-	const { width, height } = record;
+	if (!isRecord(info)) return null;
+	const { width, height } = info;
 	if (typeof width !== 'number' || typeof height !== 'number') return null;
 	if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) return null;
 	return { width, height };
 }
 
-/**
- * Everything needed to name the coarsest tile of a stored pyramid: the sheet's pixels and the tile
- * side its `info.json` declares. `null` when the document does not carry all three.
- *
- * **Beside {@link imageSizeFromInfo} rather than replacing it** (ADR-0030). That function returns two
- * facts on purpose — the starter Alignment it serves wants a Resource Mask and no tile geometry, so it
- * stays readable against any `info.json` this build or a later one wrote. A thumbnail needs a third
- * fact, and a reader that demands more is a stricter reader; folding the two together would make the
- * Alignment path refuse a document it can perfectly well use.
- *
- * **`tileSize` is read and never defaulted to {@link PYRAMID_TILE_SIZE}.** 256 is what this app writes
- * and would be right almost always, which is exactly what makes assuming it dangerous: a pyramid on
- * another tile side yields a coarsest scale factor of a different power of two, so the URL would name a
- * tile nothing ever wrote and the card would show a broken box instead of an honest blank.
- */
 export function imageGeometryFromInfo(
 	info: unknown
 ): { width: number; height: number; tileSize: number } | null {
@@ -242,14 +128,7 @@ export function imageGeometryFromInfo(
 	if (!Array.isArray(tiles)) return null;
 	const first: unknown = tiles[0];
 	if (typeof first !== 'object' || first === null) return null;
-	// `Number.isInteger` is the whole of the runtime check — it is false for a string, for `undefined`
-	// and for a fraction alike — so the declared `number` is an assumption it verifies, and the default
-	// is what makes an absent member fail the same way a zero does.
 	const { width: tileSize = 0 } = first as { width?: number };
 	if (!Number.isInteger(tileSize) || tileSize < 1) return null;
 	return { ...size, tileSize };
 }
-
-/** Tab-indented with a trailing newline, matching this project's other JSON writer. */
-export const serialiseJson = (value: unknown): Uint8Array<ArrayBuffer> =>
-	new TextEncoder().encode(`${JSON.stringify(value, null, '\t')}\n`);

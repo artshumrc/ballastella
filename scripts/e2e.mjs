@@ -1,13 +1,3 @@
-// Run the browser suite on this checkout's derived ports, with stray listeners cleared first.
-//
-// Playwright's `webServer` frees its own port, but only once it starts. Clearing up front means a
-// leftover `vite preview` from a killed run is reported to the caller by port and name, rather than
-// showing up later as a suite that mysteriously tested someone else's build.
-//
-// `--profile` is handled here rather than passed on: Playwright has no such flag, and the profiler
-// has to be *added* to the reporter list in the config. Spelling it `--reporter=…` on the command
-// line would replace that list and take the retry budget with it.
-
 import { spawn } from 'node:child_process';
 import process from 'node:process';
 
@@ -22,7 +12,6 @@ const run = (command, args) =>
 
 console.log(`e2e: editor ${editorPort}, viewer ${viewerPort}`);
 if (process.env.BALLASTELLA_E2E_PORT) console.log('e2e: ports overridden by BALLASTELLA_E2E_PORT');
-
 const held = await cleanPorts([editorPort, viewerPort]);
 if (held.length > 0) {
 	console.error(
@@ -34,8 +23,6 @@ if (held.length > 0) {
 
 const install = await run('pnpm', ['exec', 'playwright', 'install', 'chromium']);
 if (install !== 0) process.exit(install);
-
-// Everything after `--` is the caller's: a spec name, `--headed`, `--project`.
 const forwarded = process.argv.slice(2).filter((argument) => argument !== '--profile');
 if (forwarded.length !== process.argv.length - 2) {
 	process.env.BALLASTELLA_E2E_PROFILE = '1';

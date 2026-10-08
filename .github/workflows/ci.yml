@@ -23,104 +23,25 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # ADR-0019: the viewer must never depend on terra-draw or the tiler.
-      # `pnpm lint` runs this too; it is first here so a violation is the first thing read.
-      #
-      # This used to be one of a pair. `scripts/check-tiler-lazy.mjs` fenced the half a manifest
-      # cannot see — `wasm-vips` reachable only by dynamic import — and ADR-0027 removed the
-      # package, so it was deleted rather than left inspecting an absence.
-      - name: Viewer dependency fence
-        run: node scripts/check-viewer-deps.mjs
-
-      # `pnpm lint` runs this too; it is called out here because the thing it guards fails silently.
-      # Without the patch, warped rendering — the whole point of the application — renders blank with
-      # nothing in the console, and `@allmaps/render` arrives transitively so a bump of
-      # `@allmaps/maplibre` can move it underneath us.
-      - name: allmaps patch fence
-        run: node scripts/check-allmaps-patch.mjs
-
       - run: pnpm lint
 
       - run: pnpm check
 
       - run: pnpm -r build
 
-      # ADR-0045: one build has to serve a domain root and a project subdirectory, so no
-      # asset may be referenced by absolute path. Checked against the built output rather
-      # than the config, because the config is not what ships.
-      # grep exits 2 when a directory is missing, so the status is checked explicitly:
-      # a fence that cannot see the build output must fail, not report success.
       - name: Built output references assets relatively
-        run: |
-          for dir in apps/editor/build apps/viewer/build; do
-            if [ ! -d "$dir" ]; then
-              echo "::error::$dir does not exist — the ADR-0045 check could not run"
-              exit 1
-            fi
-          done
-          set +e
-          matches=$(grep -rEn '(src|href)="/[^"]*"' apps/editor/build apps/viewer/build)
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            echo "$matches"
-            echo "::error::absolute asset paths in built output — see ADR-0045 (paths.relative)"
-            exit 1
-          elif [ "$status" -ne 1 ]; then
-            echo "::error::grep exited $status — the ADR-0045 check could not run"
-            exit 1
-          fi
-          echo "OK: no absolute asset paths"
+        run: node scripts/check-relative-assets.mjs apps/editor/build apps/viewer/build
 
-      # The other half of "a static host will serve this". Relative paths get the asset *referenced*
-      # correctly; `.nojekyll` is what stops GitHub Pages' Jekyll build from dropping `_app/` so the
-      # reference resolves. Here rather than in `pnpm lint` for the same reason as the check above:
-      # it reads built output, and the config is not what ships. The chain it follows ends in a
-      # repository we never see — the author's, holding their published Workspace — so this is the
-      # last point at which it can be checked at all. See scripts/check-nojekyll.mjs.
       - name: Jekyll is off in both builds and in what publishing writes
         run: node scripts/check-nojekyll.mjs
 
-      # Before `pnpm -r test`, not only before the Playwright suite: the ProjectStore adapter
-      # suite runs against real OPFS in Vitest browser mode, so the unit tests need a browser
-      # too. `--with-deps` is what brings the system libraries headless browsers need here.
-      #
-      # Firefox as well as Chromium, because OPFS is the universal backend and
-      # the tool works fully where folder access is impossible. Firefox has its own OPFS
-      # implementation, so asserting the adapter suite only in Chromium asserts nothing about it.
+      # Firefox too: OPFS is the universal backend, and Firefox has its own implementation.
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium firefox
 
-      # `pnpm test`, not `pnpm -r test`: `-r` visits workspace packages and the repository root is
-      # not one, so the `scripts/` tests would not run. They pin two hazards that fail silently —
-      # `free-e2e-port.mjs`'s pid-0 parse and `e2e-build.mjs`'s build lock — and a test CI does not
-      # run is not a test, which is exactly why one of them spent a while filed under `base-map`.
       - run: pnpm test
 
-      # ═══════════════════════════════════════════════════════════════════════════════════════════
-      # `TMPDIR`: THE BROWSER PROFILE GOES ON A DISK WITH ROOM, BECAUSE THE QUOTA IS COMPUTED FROM IT.
-      #
-      # Playwright puts each Chromium profile under the temporary directory. What is measured: a
-      # `truncate` is charged in full against the origin's storage quota, and a developer's
-      # disk-backed `/tmp` yields a 10 GiB quota. The suite has one write that needs a real share of
-      # it — `seedWorkspaceBytes` in `editor-offline-copy.e2e.ts` extends a 700 MB sparse file, which
-      # is how a Workspace reaches ADR-0008's cliff without transferring a gigabyte — and a temporary
-      # directory small enough to shrink the quota below that refuses it with `QuotaExceededError`
-      # while every other test in the suite, which asks for kilobytes, goes on passing.
-      #
-      # What is inferred: Chromium takes the smaller of that 10 GiB and a fraction of the free space
-      # on the filesystem holding the profile, and the runner's `/tmp` has far less room than a
-      # developer's. `runner.temp` is on the root filesystem, which has tens of gigabytes free, so
-      # moving the profile there puts the quota above what that test needs.
-      #
-      # **The inference is unproven, so it is instrumented rather than trusted.** Reproducing it needs
-      # a filesystem under ~2 GB, which no developer machine here has. `df` below prints what the two
-      # candidate directories actually hold, so a run that starts refusing that write again says in
-      # numbers whether the temporary directory is the reason. Check it before believing this comment.
-      #
-      # What is deliberately *not* done: lowering the ~1 GB the test stands the Workspace up against.
-      # That is ADR-0008's real constant, the one the shipped warning reads, and a suite-only smaller
-      # limit would assert a number that does not ship.
+      # Chromium's storage quota comes from the profile's filesystem; the runner's /tmp is too small.
       - name: Temporary-directory space (browser storage quota comes from here)
         run: df -h /tmp "${{ runner.temp }}"
 
@@ -135,18 +56,7 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-      # ═══════════════════════════════════════════════════════════════════════════════════════════
-      # THE DEPLOYMENT BUILD, LAST, BECAUSE IT IS A DIFFERENT ARTIFACT FROM THE ONE TESTED ABOVE.
-      #
-      # `pages.yml` deploys `pnpm build:deploy`, which reads a filtered source tree so that a public
-      # instance ships neither the `/image-pane` developer harness nor its test fixtures. Everything
-      # above this line — the whole unit suite and the whole browser suite — runs against the
-      # *ordinary* build, which contains both, because that is what the specs drive.
-      #
-      # That gap is inherent to any build-time exclusion, and leaving it unwatched is how a
-      # deployment build comes to fail on a push nobody connected to it. So CI produces the
-      # deployment artifact too and checks it. **Last, and deliberately**: it overwrites
-      # `apps/editor/build`, so nothing after it may depend on the tested build.
+      # Last: it overwrites apps/editor/build, which everything above tested.
       - run: pnpm build:deploy
 
       - name: The deployable artifact carries the app and no developer harness

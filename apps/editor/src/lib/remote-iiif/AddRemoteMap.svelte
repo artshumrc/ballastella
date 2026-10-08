@@ -1,20 +1,8 @@
 <script lang="ts">
-	// Adding a Map Image from a IIIF URL.
-	//
-	// The whole flow is keyboard-operable without anything special being done for it, and that is the
-	// point of the elements chosen: the URL is an `<input>` in a `<form>`, so Enter submits; the
-	// canvases are `<button>`s in a list, so Tab reaches each and Enter and Space activate it; the
-	// community offer is a `<select>`; the lookup setting is a checkbox with a real `<label>`. A
-	// div-with-onclick would have needed `tabindex`, a keydown handler, and a role — three things to
-	// get right per control instead of none.
-	//
-	// **Everything from the remote document is interpolated as text, never `{@html}`.** A IIIF label
-	// or metadata value is a stranger's string, and the Presentation API even permits a restricted
-	// subset of HTML in it. Svelte escapes interpolation, so the cost of this is a library's italics
-	// and the benefit is that the Markdown-and-sanitisation path — which exists for the *user's own*
-	// prose — is not pressed into service on an untrusted third-party document.
+	import { COMMUNITY_ALIGNMENT_DISCLOSURE } from '@ballastella/core';
 
-	import type { MapLayer } from '@ballastella/core';
+	import Alert from '$lib/components/Alert.svelte';
+	import ExternalLink from '$lib/components/ExternalLink.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import { AddRemoteMap } from './add-remote-map.svelte.js';
@@ -24,35 +12,12 @@
 		onadded
 	}: {
 		session: EditorSession;
-		/**
-		 * The Layer is written, and what else the caller has to say about it.
-		 *
-		 * **`layer` is `null` when the address turned out to be a plain image file.** That path is a
-		 * download followed by the same tiling job a picked file goes through, so at the moment this
-		 * panel is finished with there is no Layer yet — `EditorSession.ingestImage` makes it when the
-		 * pyramid is cut, and the progress is on its card. The surface still has to close, which is what
-		 * this call is for.
-		 *
-		 * **`notice` travels with the Layer** because the surface this panel lives in closes on a
-		 * successful add, and a message rendered here would be removed in the same frame it
-		 * appeared in — which is indistinguishable from one that never happened, for a screen reader
-		 * most of all. So the panel produces the sentence and the screen keeps it, the same division
-		 * `OfflineCopyJob.completed` already has and for the same reason. `''` when there is nothing to
-		 * say, which is the ordinary case.
-		 */
-		onadded?: (added: { layer: MapLayer | null; notice: string }) => void;
+		onadded: (notice: string) => void;
 	} = $props();
 
 	const job = new AddRemoteMap(() => session);
+	const busy = $derived(job.step !== 'idle' && job.step !== 'choosing');
 
-	const busy = $derived(
-		job.step === 'reading' ||
-			job.step === 'checking' ||
-			job.step === 'downloading' ||
-			job.step === 'adding'
-	);
-
-	/** What the announced region says, so a screen-reader user hears the same thing the page shows. */
 	const status = $derived.by(() => {
 		if (job.step === 'reading') return 'Reading that address…';
 		if (job.step === 'checking')
@@ -76,21 +41,8 @@
 		return '';
 	});
 
-	/**
-	 * Look up an address — the pasted one, or a Collection item the user opened.
-	 *
-	 * Both go through here so that both can end in an image file: a Collection is a list of URLs
-	 * somebody else wrote, and nothing says every one of them names a Manifest. When one turns out to
-	 * be an image, it has been downloaded and handed to the tiler by the time this returns, and there
-	 * is nothing left in this panel to look at — so the surface closes exactly as it does when a file
-	 * is picked, and the progress is on the new Layer's card.
-	 */
 	const look = async (url?: string, fromCollection = false) => {
-		await job.read(url, fromCollection);
-		if (job.downloaded !== '') {
-			job.downloaded = '';
-			onadded?.({ layer: null, notice: '' });
-		}
+		if (await job.read(url, fromCollection)) onadded('');
 	};
 
 	const submit = async (event: SubmitEvent) => {
@@ -99,8 +51,7 @@
 	};
 
 	const add = async () => {
-		const layer = await job.addSelected();
-		if (layer) onadded?.({ layer, notice: job.notice });
+		if (await job.addSelected()) onadded(job.notice);
 	};
 </script>
 
@@ -139,11 +90,6 @@
 		{/if}
 	</form>
 
-	<!--
-		The lookup setting, at the point of use rather than on a settings page (ADR-0015). A scholar
-		working on embargoed material has to be able to see and change it in the same place they are
-		about to add the map, not go looking for it afterwards.
-	-->
 	<div class="mt-4 max-w-2xl">
 		<label class="label cursor-pointer justify-start gap-3">
 			<input
@@ -154,44 +100,17 @@
 			/>
 			<span
 				>{job.lookupEnabled
-					? job.disclosure
+					? COMMUNITY_ALIGNMENT_DISCLOSURE
 					: 'Not checking Allmaps for existing georeferences.'}</span
 			>
 		</label>
 	</div>
 
-	<!--
-		`aria-live="polite"` rather than `role="status"`: the save indicator is already this page's one
-		`status` role, and two of them make `getByRole('status')` ambiguous — for a test and for a
-		screen-reader user alike.
-	-->
 	<div aria-live="polite" aria-atomic="true" class="mt-3 min-h-6">
 		{#if status}<p class="text-sm" data-testid="remote-status">{status}</p>{/if}
 	</div>
 
-	<!--
-		**`job.notice` is not rendered here**, and that is deliberate rather than an omission.
-
-		The add succeeded and something the user asked for did not happen — the community Alignment they
-		chose was kept over — so it is news they must not miss. This panel is inside the dialog that
-		*closes* on a successful add, so a message here would be inserted and removed in the same frame:
-		invisible to a reader and, worse, never announced to a screen-reader user, because a live region
-		that is removed announces nothing. It travels out through `onadded` instead and the Project
-		screen keeps it, beside the offline copy's completion message, which is where this app already
-		puts the outcome of a dialog that closes itself.
-	-->
-
-	{#if job.error}
-		<!--
-			The refusal, in the words the core modules chose — they name the host, say what would have
-			gone wrong, and offer the way through. `whitespace-pre-line` because those messages carry a
-			paragraph break, and running the two paragraphs together is how a long, careful explanation
-			becomes a wall nobody reads.
-		-->
-		<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
-			<p class="whitespace-pre-line" data-testid="remote-error">{job.error}</p>
-		</div>
-	{/if}
+	<Alert class="mt-4 max-w-prose whitespace-pre-line" testid="remote-error" text={job.error} />
 
 	{#if job.described}
 		{@const described = job.described}
@@ -199,31 +118,11 @@
 			<h4 class="font-semibold" data-testid="remote-label">{described.label || described.uri}</h4>
 			{#if described.summary}<p class="mt-1 text-sm">{described.summary}</p>{/if}
 
-			<!--
-				Rights and attribution. Shown while choosing, so a scholar knows what they are permitted to
-				do *before* they build work on it — and recorded into `remote.json` as well, because
-				ADR-0007 asks for them again at the moment an offline copy is made, long after the Manifest
-				has been navigated away from.
-			-->
 			{#if described.rights}
 				<p class="mt-3 text-sm" data-testid="remote-rights">
 					<span class="font-medium">Rights:</span>
 					{#if described.rightsLink}
-						<!--
-							`rightsLink` and not `rights`. Svelte does not sanitise `href`, so a Manifest
-							declaring `"rights": "javascript:…"` would otherwise produce a link that runs script
-							when a scholar clicks it to read the licence. `describeRemoteResource` is where that
-							decision is made, beside the rest of the untrusted-input rules — and a rights URI
-							that is not http(s) still shows, as text, because what the library said is worth
-							reading either way.
-
-							`resolve()` is for this app's own routes; a library's licence page is not one, so the
-							rule is disabled here for the one case it does not cover.
-						-->
-						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-						<a class="link" href={described.rightsLink} rel="noreferrer noopener" target="_blank"
-							>{described.rights}</a
-						>
+						<ExternalLink class="link" href={described.rightsLink}>{described.rights}</ExternalLink>
 					{:else}
 						{described.rights}
 					{/if}
@@ -255,7 +154,6 @@
 				</details>
 			{/if}
 
-			<!-- A Collection: one URL from a library, and the volumes inside it. -->
 			{#if job.items.length > 0}
 				<ul class="mt-4 flex flex-col gap-1" aria-label="Items in this Collection">
 					{#each job.items as item (item.uri)}
@@ -275,7 +173,6 @@
 				</ul>
 			{/if}
 
-			<!-- A multi-canvas Manifest: pick the canvas that is the map. -->
 			{#if job.canvases.length > 1}
 				<fieldset class="mt-4">
 					<legend class="text-sm font-medium">Which image is the map?</legend>
@@ -315,7 +212,6 @@
 						into your Project — so a Published Site of this Project needs the network to show it.
 					</p>
 
-					<!-- "Import existing alignment — 3 found." -->
 					{#if job.community?.state === 'found' && job.community.alignments.length > 0}
 						{@const alignments = job.community.alignments}
 						<label class="mt-3 block text-sm" data-testid="community-offer">

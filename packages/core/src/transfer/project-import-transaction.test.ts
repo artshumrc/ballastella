@@ -1,123 +1,60 @@
-// The destination half of Project Import: one closure, written once, under one recoverable marker
-// (ADR-0037).
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// WHY THE ASSERTIONS ARE WHOLE STORE SNAPSHOTS AND NOT CALL ORDER
-//
-// The claim under test is that a Workspace shows either its old complete state or its new complete
-// imported Project and never a mixture. That is a claim about the *files*, so every fault case
-// compares the entire store against a complete expected snapshot rather than asserting which methods
-// were called in which order — CONTRIBUTING.md's rule for a good test at this seam, and the only form
-// of the assertion that a different implementation of the same protocol would still have to satisfy.
-//
-// **`project.json` last is proved the same way.** No spy: the fault matrix walks every durable
-// boundary, and at each one the snapshot is compared whole. A snapshot holding the imported manifest
-// while missing one of its Layers' files would fail its own comparison, so the discipline is asserted
-// by the matrix rather than claimed beside it.
-//
-// **One engine, exercised at the memory seam, for both real backings.** OPFS and the chosen folder
-// share `TempFileWriteStore`'s temp-file-then-rename `write` and are held to it by the shared adapter
-// suite, and every decision this protocol makes — the folded path comparison included — is made in
-// the engine from `list` and `size`. A per-backing copy of this matrix would prove each backing
-// self-consistent rather than proving they agree, and the thing that could differ between them is
-// already the adapter suite's subject.
-
 import { describe, expect, it } from 'vitest';
 
 import { alignmentPath } from '../alignment/alignment.js';
-import { PROJECT_FILE_NAME, parseProjectFile } from '../project/project-file.js';
+import { PROJECT_FILE_NAME } from '../project/project-file.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
-import { type Bytes, type StorePath } from '../store/project-store.js';
+import { TEMP_PATH_SUFFIX, type Bytes, type StorePath } from '../store/project-store.js';
+import { decode, encode, rejection } from '../test-support.js';
+import type { ClosurePath } from './project-import-source.js';
 import {
 	IMPORT_TRANSACTION_FORMAT_VERSION,
 	IMPORT_TRANSACTION_PATH,
+	ImportRecoveryFailedError,
 	ImportRefusedError,
 	clearImportTransaction,
 	commitProjectImport,
 	discardImportTransaction,
 	readImportTransaction,
+	recoverProjectImport,
 	serialiseImportTransaction,
-	type ImportTransaction,
-	type ImportTransactionMark
+	type ImportRecovery,
+	type ImportTransaction
 } from './project-import-transaction.js';
-import {
-	createProjectImportSource,
-	type ClosureFile,
-	type ClosurePath,
-	type ProjectImportSource
-} from './project-import-source.js';
-
-const encode = (text: string): Bytes => new TextEncoder().encode(text) as Bytes;
-const decode = (bytes: Bytes): string => new TextDecoder().decode(bytes);
+import { closureSource, contents, planted, projectJson } from './test-fixtures.js';
 
 const TRANSACTION = 'tx-1';
 const STARTED_AT = '2026-08-22T10:00:00.000Z';
+const PROJECT_JSON = projectJson();
 
-/** The Project the source is offering, as its own `project.json` spells it. */
-const PROJECT_JSON = `${JSON.stringify(
-	{
-		formatVersion: 1,
-		name: 'Amsterdam 1625',
-		updatedAt: '2025-03-04T11:22:33.000Z',
-		layers: [
-			{
-				id: 'l1',
-				name: 'The 1625 plan',
-				visible: true,
-				order: 0,
-				kind: 'map',
-				opacity: 0.8,
-				imageId: 'amsterdam-1625'
-			},
-			{
-				id: 'l2',
-				name: 'Warehouses',
-				visible: true,
-				order: 1,
-				kind: 'annotation',
-				geojsonRef: 'annotations/warehouses.geojson'
-			}
-		],
-		baseMap: 'protomaps-light'
-	},
-	null,
-	'\t'
-)}\n`;
-
-/** Every closure path the source holds, Project-relative, with the bytes it will hand over. */
 const CLOSURE: Record<ClosurePath, string> = {
 	[PROJECT_FILE_NAME]: PROJECT_JSON,
 	'annotations/warehouses.geojson': '{"type":"FeatureCollection","features":[]}',
 	'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
 	'images/amsterdam-1625/0/0/0.jpg': 'not really a jpeg, but bytes',
-	// alignment-write-is-the-fixture: the Alignment as the source Workspace already holds it, which the transaction carries over verbatim
 	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}'
 };
 
-/** Where the closure lands: a fresh Project directory and a fresh Map Image identity. */
 const DIRECTORY = 'amsterdam-1625-2';
 const FRESH_IMAGE = 'img-fresh';
+const FRESH_INFO = `images/${FRESH_IMAGE}/info.json`;
 
 const DESTINATIONS: ReadonlyMap<ClosurePath, StorePath> = new Map([
 	[PROJECT_FILE_NAME, `${DIRECTORY}/${PROJECT_FILE_NAME}` as StorePath],
 	['annotations/warehouses.geojson', `${DIRECTORY}/annotations/warehouses.geojson` as StorePath],
-	['images/amsterdam-1625/info.json', `images/${FRESH_IMAGE}/info.json` as StorePath],
+	['images/amsterdam-1625/info.json', FRESH_INFO as StorePath],
 	['images/amsterdam-1625/0/0/0.jpg', `images/${FRESH_IMAGE}/0/0/0.jpg` as StorePath],
 	['alignments/amsterdam-1625.json', alignmentPath(FRESH_IMAGE) as StorePath]
 ]);
 
 const MANIFEST_DESTINATION = DESTINATIONS.get(PROJECT_FILE_NAME) as StorePath;
 
-/** The Workspace the user already has, which every refusal and every rollback has to leave alone. */
 const BEFORE: Record<string, string> = {
 	'the-canal-ring/project.json': '{"formatVersion":1,"name":"The Canal Ring","layers":[]}',
 	'the-canal-ring/annotations/canals.geojson': '{"type":"FeatureCollection","features":[]}',
 	'images/blaeu-1649/info.json': '{"width":2048,"height":2048}',
-	// alignment-write-is-the-fixture: the user's own Alignment, seeded so a rollback that touched it would be visible
 	'alignments/blaeu-1649.json': '{"type":"Annotation","id":"blaeu-1649"}'
 };
 
-/** The Workspace once the whole closure has arrived at its planned paths. */
 const AFTER: Record<string, string> = {
 	...BEFORE,
 	...Object.fromEntries(
@@ -125,25 +62,6 @@ const AFTER: Record<string, string> = {
 	)
 };
 
-function seed(files: Record<string, string> = BEFORE): MemoryProjectStore {
-	const store = new MemoryProjectStore();
-	for (const [path, content] of Object.entries(files))
-		store.plant(path as StorePath, encode(content));
-	return store;
-}
-
-/** Every path the store holds with its contents, for comparison against a complete expectation. */
-const snapshot = (store: MemoryProjectStore): Record<string, string> =>
-	Object.fromEntries([...store.snapshot()].map(([path, bytes]) => [path, decode(bytes)]));
-
-/**
- * The order the source hands its files over in, **with the manifest first**.
- *
- * A source delivers in whatever order it is cheapest in, and a tar's is the order its author packed
- * it. `project.json` first is therefore a legitimate source and the one that matters: it is the only
- * arrangement under which "the manifest is written last" is a claim about the engine rather than an
- * accident of the closure's sorted paths, where `project.json` comes last anyway.
- */
 const STREAM_ORDER: readonly ClosurePath[] = [
 	PROJECT_FILE_NAME,
 	...Object.keys(CLOSURE)
@@ -151,45 +69,13 @@ const STREAM_ORDER: readonly ClosurePath[] = [
 		.sort()
 ];
 
-/** The last file the source hands over, after which only the manifest and the marker are left. */
 const LAST_DELIVERED = STREAM_ORDER[STREAM_ORDER.length - 1] as ClosurePath;
-
-/**
- * A source over {@link CLOSURE}, validated exactly as a real one is.
- *
- * `between` runs after each file is handed over, which is where a mid-transaction observation of the
- * Workspace goes: the engine is between two durable writes at that moment and nothing else can see
- * it there.
- */
-function source(between?: (path: ClosurePath) => void | Promise<void>): ProjectImportSource {
-	const offered = Object.entries(CLOSURE).map(([path, content]) => ({
-		path,
-		bytes: encode(content).byteLength
-	}));
-	return createProjectImportSource({
-		origin: {
-			kind: 'project-bundle',
-			fileName: 'amsterdam-1625.project.tar',
-			projectName: 'Amsterdam 1625'
-		},
-		project: parseProjectFile(encode(PROJECT_JSON)),
-		projectFileBytes: encode(PROJECT_JSON),
-		offered,
-		files: async function* (paths): AsyncIterable<ClosureFile> {
-			for (const path of STREAM_ORDER.filter((one) => paths.includes(one))) {
-				yield { path, bytes: encode(CLOSURE[path] as string) };
-				await between?.(path);
-			}
-		}
-	});
-}
 
 const CLOSURE_BYTES = Object.values(CLOSURE).reduce(
 	(sum, content) => sum + encode(content).byteLength,
 	0
 );
 
-/** The marker as the engine writes it at its widest, which is what the quota check has to allow for. */
 const COMMITTED: ImportTransaction = {
 	formatVersion: IMPORT_TRANSACTION_FORMAT_VERSION,
 	transaction: TRANSACTION,
@@ -199,350 +85,180 @@ const COMMITTED: ImportTransaction = {
 	startedAt: STARTED_AT
 };
 
+const WRITING: ImportTransaction = { ...COMMITTED, state: 'writing' };
 const MARKER_BYTES = serialiseImportTransaction(COMMITTED).byteLength;
+const marker = (mark: ImportTransaction) => decode(serialiseImportTransaction(mark));
 
 const OPTIONS = {
 	transaction: () => TRANSACTION,
 	now: () => new Date(STARTED_AT)
 };
 
-/** A plan with one entry changed, for the refusals that are about the plan itself. */
-const planWith = (changes: ReadonlyMap<ClosurePath, StorePath>): Map<ClosurePath, StorePath> =>
-	new Map([...DESTINATIONS, ...changes]);
+const at = (closure: string, destination: string): Map<ClosurePath, StorePath> =>
+	new Map([...DESTINATIONS, [closure as ClosurePath, destination as StorePath]]);
+
+const WRITES = Object.keys(CLOSURE).length + 2;
+const seed = (files: Record<string, string> = BEFORE): MemoryProjectStore => planted(files);
+
+const source = (between?: (path: ClosurePath) => void | Promise<void>) =>
+	closureSource(CLOSURE, { order: STREAM_ORDER, between });
 
 const importInto = (
 	store: MemoryProjectStore,
 	plan: ReadonlyMap<ClosurePath, StorePath> = DESTINATIONS,
-	options: Parameters<typeof commitProjectImport>[3] = OPTIONS
-) => commitProjectImport(store, source(), plan, options);
+	options: Parameters<typeof commitProjectImport>[3] = OPTIONS,
+	from = source()
+) => commitProjectImport(store, from, plan, options);
 
-const refusalOf = async (run: () => Promise<unknown>): Promise<ImportRefusedError> => {
-	try {
-		await run();
-	} catch (cause) {
-		if (cause instanceof ImportRefusedError) return cause;
-		throw cause;
-	}
-	throw new Error('the Import was not refused');
-};
+const refusalOf = (run: () => Promise<unknown>) => rejection(ImportRefusedError, run);
 
 describe('committing a Project Import', () => {
 	describe('preflight, before any byte of the closure is written', () => {
-		it('refuses a plan that does not name every closure path, and writes nothing', async () => {
+		const partial = new Map(DESTINATIONS);
+		partial.delete('images/amsterdam-1625/info.json');
+		const folded = at('images/amsterdam-1625/info.json', `images/${FRESH_IMAGE}/Info.json`);
+		folded.set('images/amsterdam-1625/0/0/0.jpg', `images/${FRESH_IMAGE}/INFO.json` as StorePath);
+
+		it.each([
+			['does not name every closure path', partial],
+			[
+				'names a path the closure lacks',
+				at('images/somebody-else/info.json', 'images/x/info.json')
+			],
+			[
+				'plans two paths onto one destination',
+				at('images/amsterdam-1625/info.json', `images/${FRESH_IMAGE}/0/0/0.jpg`)
+			],
+			['plans destinations a case-folding filesystem would merge', folded],
+			[
+				'names the reserved transaction marker',
+				at('annotations/warehouses.geojson', IMPORT_TRANSACTION_PATH)
+			],
+			[
+				'names a path that is not a usable store path',
+				at('annotations/warehouses.geojson', '../escape')
+			]
+		])('refuses a plan that %s, and writes nothing', async (_, plan) => {
 			const store = seed();
-			const partial = new Map(DESTINATIONS);
-			partial.delete('images/amsterdam-1625/info.json');
-
-			const refusal = await refusalOf(() => importInto(store, partial));
-
-			expect(refusal.refusal).toBe('plan-mismatch');
-			expect(snapshot(store)).toEqual(BEFORE);
+			expect((await refusalOf(() => importInto(store, plan))).refusal).toBe('plan-mismatch');
+			expect(contents(store)).toEqual(BEFORE);
 		});
 
-		it('refuses a plan naming a path the closure does not hold', async () => {
-			const store = seed();
-			const extra = planWith(
-				new Map([['images/somebody-else/info.json', 'images/x/info.json' as StorePath]])
-			);
-
-			const refusal = await refusalOf(() => importInto(store, extra));
-
-			expect(refusal.refusal).toBe('plan-mismatch');
-			expect(snapshot(store)).toEqual(BEFORE);
-		});
-
-		it('refuses two closure paths planned onto one destination', async () => {
-			const store = seed();
-			const collided = planWith(
-				new Map([
-					['images/amsterdam-1625/info.json', `images/${FRESH_IMAGE}/0/0/0.jpg` as StorePath]
-				])
-			);
-
-			const refusal = await refusalOf(() => importInto(store, collided));
-
-			expect(refusal.refusal).toBe('plan-mismatch');
-			expect(snapshot(store)).toEqual(BEFORE);
-		});
-
-		it('refuses two destinations that a case-folding filesystem would treat as one', async () => {
-			const store = seed();
-			const folded = planWith(
-				new Map([
-					['images/amsterdam-1625/info.json', `images/${FRESH_IMAGE}/Info.json` as StorePath]
-				])
-			);
-			folded.set('images/amsterdam-1625/0/0/0.jpg', `images/${FRESH_IMAGE}/INFO.json` as StorePath);
-
-			const refusal = await refusalOf(() => importInto(store, folded));
-
-			expect(refusal.refusal).toBe('plan-mismatch');
-			expect(snapshot(store)).toEqual(BEFORE);
-		});
-
-		it('refuses the reserved transaction marker as a destination', async () => {
-			const store = seed();
-			const reserved = planWith(
-				new Map([['annotations/warehouses.geojson', IMPORT_TRANSACTION_PATH]])
-			);
-
-			const refusal = await refusalOf(() => importInto(store, reserved));
-
-			expect(refusal.refusal).toBe('plan-mismatch');
-			expect(snapshot(store)).toEqual(BEFORE);
-		});
-
-		it('refuses a destination that is not a usable store path', async () => {
-			const store = seed();
-			const unusable = planWith(
-				new Map([['annotations/warehouses.geojson', '../escape' as StorePath]])
-			);
-
-			const refusal = await refusalOf(() => importInto(store, unusable));
-
-			expect(refusal.refusal).toBe('plan-mismatch');
-			expect(snapshot(store)).toEqual(BEFORE);
-		});
-
-		it('refuses a destination that already exists', async () => {
-			const store = seed({ ...BEFORE, [`images/${FRESH_IMAGE}/info.json`]: 'the user’s own map' });
-
-			const refusal = await refusalOf(() => importInto(store));
-
-			expect(refusal.refusal).toBe('destination-exists');
-			expect(snapshot(store)[`images/${FRESH_IMAGE}/info.json`]).toBe('the user’s own map');
-		});
-
-		it('refuses a destination that a case-insensitive filesystem would overwrite', async () => {
-			const store = seed({
-				...BEFORE,
-				[`images/${FRESH_IMAGE.toUpperCase()}/info.json`]: 'theirs'
-			});
-
-			const refusal = await refusalOf(() => importInto(store));
-
-			expect(refusal.refusal).toBe('destination-exists');
-			expect(snapshot(store)).toEqual({
-				...BEFORE,
-				[`images/${FRESH_IMAGE.toUpperCase()}/info.json`]: 'theirs'
-			});
-		});
-
-		it('refuses a destination that a composition-folding filesystem would overwrite', async () => {
-			// The plan asks for the composed spelling; the Workspace holds the decomposed one, which is
-			// what APFS hands back for either. Two distinct strings, one file.
-			const composed = `${DIRECTORY}/annotations/wärehouses.geojson`.normalize('NFC');
-			const stored = composed.normalize('NFD');
-			expect(stored).not.toBe(composed);
-			const store = seed({ ...BEFORE, [stored]: 'the user’s own Annotations' });
-
-			const refusal = await refusalOf(() =>
-				importInto(
-					store,
-					planWith(new Map([['annotations/warehouses.geojson', composed as StorePath]]))
-				)
-			);
-
-			expect(refusal.refusal).toBe('destination-exists');
-			expect(snapshot(store)).toEqual({ ...BEFORE, [stored]: 'the user’s own Annotations' });
+		const composed = `${DIRECTORY}/annotations/wärehouses.geojson`.normalize('NFC');
+		const decomposed = composed.normalize('NFD');
+		it.each([
+			['already exists', FRESH_INFO, DESTINATIONS],
+			['a case-insensitive filesystem would overwrite', FRESH_INFO.toUpperCase(), DESTINATIONS],
+			[
+				'a composition-folding filesystem would overwrite',
+				decomposed,
+				at('annotations/warehouses.geojson', composed)
+			]
+		])('refuses a destination that %s', async (_, existing, plan) => {
+			expect(decomposed).not.toBe(composed);
+			const before = { ...BEFORE, [existing]: 'the user’s own' };
+			const store = seed(before);
+			expect((await refusalOf(() => importInto(store, plan))).refusal).toBe('destination-exists');
+			expect(contents(store)).toEqual(before);
 		});
 
 		it('refuses while another transaction is unresolved, and keeps its path inventory', async () => {
-			const planted: ImportTransaction = { ...COMMITTED, state: 'writing', transaction: 'tx-0' };
+			const unresolved: ImportTransaction = { ...WRITING, transaction: 'tx-0' };
 			const store = seed();
-			store.plant(IMPORT_TRANSACTION_PATH, serialiseImportTransaction(planted));
+			store.plant(IMPORT_TRANSACTION_PATH, serialiseImportTransaction(unresolved));
 
-			const refusal = await refusalOf(() => importInto(store));
-
-			expect(refusal.refusal).toBe('import-in-progress');
-			expect(await readImportTransaction(store)).toEqual(planted);
+			expect((await refusalOf(() => importInto(store))).refusal).toBe('import-in-progress');
+			expect(await readImportTransaction(store)).toEqual(unresolved);
 		});
+
+		const required = CLOSURE_BYTES + 2 * MARKER_BYTES;
+		const room = (spare: number) => async () => ({ quota: 1_000_000, usage: 1_000_000 - spare });
 
 		it('refuses on quota, needing one closure and the marker rather than a second copy', async () => {
 			const store = seed();
-			const required = CLOSURE_BYTES + 2 * MARKER_BYTES;
-
 			const refusal = await refusalOf(() =>
-				importInto(store, DESTINATIONS, {
-					...OPTIONS,
-					estimateStorage: async () => ({ quota: 1_000_000, usage: 1_000_000 - required + 1 })
-				})
+				importInto(store, DESTINATIONS, { ...OPTIONS, estimateStorage: room(required - 1) })
 			);
 
 			expect(refusal.refusal).toBe('insufficient-quota');
 			expect(refusal.requiredBytes).toBe(required);
-			expect(snapshot(store)).toEqual(BEFORE);
+			expect(contents(store)).toEqual(BEFORE);
 		});
 
-		it('proceeds on exactly one closure plus the marker twice over', async () => {
+		it.each([
+			['exactly one closure plus the marker twice over', room(required)],
+			['the browser not saying how much room there is', async () => null]
+		])('proceeds on %s', async (_, estimateStorage) => {
 			const store = seed();
-			const required = CLOSURE_BYTES + 2 * MARKER_BYTES;
-
-			await importInto(store, DESTINATIONS, {
-				...OPTIONS,
-				estimateStorage: async () => ({ quota: 1_000_000, usage: 1_000_000 - required })
-			});
-
-			expect(snapshot(store)).toEqual(AFTER);
-		});
-
-		it('goes ahead when the browser will not say how much room there is', async () => {
-			const store = seed();
-
-			await importInto(store, DESTINATIONS, {
-				...OPTIONS,
-				estimateStorage: async () => null
-			});
-
-			expect(snapshot(store)).toEqual(AFTER);
+			await importInto(store, DESTINATIONS, { ...OPTIONS, estimateStorage });
+			expect(contents(store)).toEqual(AFTER);
 		});
 	});
 
-	describe('while the transaction is unresolved', () => {
-		it('names the transaction, its state, its manifest, and every provisional path', async () => {
-			const store = seed();
-			const seen: (ImportTransactionMark | null)[] = [];
+	it('marks the transaction while unresolved, writes the manifest last, and adds exactly the closure', async () => {
+		const store = seed();
+		const seen: unknown[] = [];
+		const held: boolean[] = [];
 
-			await commitProjectImport(
-				store,
-				source(async () => {
-					seen.push(await readImportTransaction(store));
-				}),
-				DESTINATIONS,
-				OPTIONS
-			);
+		const imported = await importInto(
+			store,
+			DESTINATIONS,
+			OPTIONS,
+			source(async () => {
+				seen.push(await readImportTransaction(store));
+				held.push(store.snapshot().has(MANIFEST_DESTINATION));
+			})
+		);
 
-			expect(seen).toHaveLength(Object.keys(CLOSURE).length);
-			for (const mark of seen) {
-				expect(mark).toEqual({ ...COMMITTED, state: 'writing' });
-			}
-		});
-
-		it('has not written the imported project.json while any of its files are still to come', async () => {
-			const store = seed();
-			const held: boolean[] = [];
-
-			await commitProjectImport(
-				store,
-				source(async () => {
-					held.push(store.snapshot().has(MANIFEST_DESTINATION));
-				}),
-				DESTINATIONS,
-				OPTIONS
-			);
-
-			// A Workspace's list of Projects *is* whichever directories hold a `project.json`
-			// (ADR-0008), and this source hands the manifest over first — so an engine writing files
-			// as they arrive would have one on disk from the first observation onwards.
-			expect(held).toEqual(held.map(() => false));
-			expect(store.snapshot().has(MANIFEST_DESTINATION)).toBe(true);
-		});
-
-		it('leaves nothing for a reader to find once it has committed', async () => {
-			const store = seed();
-
-			await importInto(store);
-
-			expect(await readImportTransaction(store)).toBeNull();
-		});
-	});
-
-	describe('a successful Import', () => {
-		it('adds the complete closure and nothing else', async () => {
-			const store = seed();
-
-			const imported = await importInto(store);
-
-			expect(snapshot(store)).toEqual(AFTER);
-			expect(imported).toEqual({
-				transaction: TRANSACTION,
-				files: Object.keys(CLOSURE).length,
-				bytes: CLOSURE_BYTES
-			});
-		});
-
-		it('carries the incoming Alignment over verbatim, at its fresh identity', async () => {
-			const store = seed();
-
-			await importInto(store);
-
-			expect(decode(await store.read(alignmentPath(FRESH_IMAGE)))).toBe(
-				CLOSURE['alignments/amsterdam-1625.json']
-			);
+		expect(seen).toEqual(Object.keys(CLOSURE).map(() => WRITING));
+		expect(held).toEqual(held.map(() => false));
+		expect(contents(store)).toEqual(AFTER);
+		expect(await readImportTransaction(store)).toBeNull();
+		expect(imported).toEqual({
+			transaction: TRANSACTION,
+			files: Object.keys(CLOSURE).length,
+			bytes: CLOSURE_BYTES
 		});
 	});
 
 	describe('fault injection at every durable boundary', () => {
-		// Every logical write the protocol makes: the marker, the closure's non-manifest files, the
-		// manifest, and the marker again as committed.
-		//
-		// **The matrix is also where "every path is written once" is proved.** A fault armed at write
-		// *n* that never fires would let the Import succeed and fail its own `rejects`, so the cases
-		// below establish that all `WRITES` writes happen; the case after them arms write `WRITES + 1`
-		// and succeeds, establishing that none does. One write per closure path and two for the
-		// marker — no second copy of anything, which is what the one-copy protocol claims.
-		const WRITES = Object.keys(CLOSURE).length + 2;
+		it.each(
+			Array.from({ length: WRITES }, (_, i) =>
+				(['bytes', 'rename'] as const).map((step) => [i + 1, step] as const)
+			).flat()
+		)('leaves the Workspace exactly as it was when write %i fails at %s', async (nth, step) => {
+			const store = seed();
+			store.failWriteAt(nth, step);
 
-		for (let nth = 1; nth <= WRITES; nth += 1) {
-			for (const step of ['bytes', 'rename'] as const) {
-				it(`leaves the Workspace exactly as it was when write ${nth} fails at ${step}`, async () => {
-					const store = seed();
-					store.failWriteAt(nth, step);
+			await expect(importInto(store)).rejects.toThrow();
 
-					await expect(importInto(store)).rejects.toThrow();
-
-					expect(snapshot(store)).toEqual(BEFORE);
-					expect(await readImportTransaction(store)).toBeNull();
-				});
-			}
-		}
+			expect(contents(store)).toEqual(BEFORE);
+			expect(await readImportTransaction(store)).toBeNull();
+		});
 
 		it('is the complete after state once the last write has landed', async () => {
 			const store = seed();
 			store.failWriteAt(WRITES + 1, 'rename');
-
 			await importInto(store);
-
-			expect(snapshot(store)).toEqual(AFTER);
+			expect(contents(store)).toEqual(AFTER);
 		});
 
 		it('refuses a source that stops short, and takes back what it had written', async () => {
 			const store = seed();
-			const truncated = createProjectImportSource({
-				origin: { kind: 'project-bundle', fileName: '', projectName: 'Amsterdam 1625' },
-				project: parseProjectFile(encode(PROJECT_JSON)),
-				projectFileBytes: encode(PROJECT_JSON),
-				offered: Object.entries(CLOSURE).map(([path, content]) => ({
-					path,
-					bytes: encode(content).byteLength
-				})),
-				files: async function* (): AsyncIterable<ClosureFile> {
-					yield {
-						path: 'annotations/warehouses.geojson',
-						bytes: encode(CLOSURE['annotations/warehouses.geojson'] as string)
-					};
-				}
-			});
+			const truncated = closureSource(CLOSURE, { order: ['annotations/warehouses.geojson'] });
 
-			await expect(commitProjectImport(store, truncated, DESTINATIONS, OPTIONS)).rejects.toThrow(
+			await expect(importInto(store, DESTINATIONS, OPTIONS, truncated)).rejects.toThrow(
 				/Nothing has been added to your Workspace/
 			);
-
-			expect(snapshot(store)).toEqual(BEFORE);
+			expect(contents(store)).toEqual(BEFORE);
 		});
 
 		it('never rolls back a committed closure, even when the marker will not clear', async () => {
 			const store = seed();
 			store.failNextDelete();
 
-			const refusal = await refusalOf(() => importInto(store));
-
-			expect(refusal.refusal).toBe('unresolved-commit');
-			// The Project is complete and the Workspace is shut, which is what recovery finishes.
-			expect(snapshot(store)).toEqual({
-				...AFTER,
-				[IMPORT_TRANSACTION_PATH]: decode(serialiseImportTransaction(COMMITTED))
-			});
+			expect((await refusalOf(() => importInto(store))).refusal).toBe('unresolved-commit');
+			expect(contents(store)).toEqual({ ...AFTER, [IMPORT_TRANSACTION_PATH]: marker(COMMITTED) });
 			expect(await readImportTransaction(store)).toEqual(COMMITTED);
 		});
 
@@ -552,40 +268,26 @@ describe('committing a Project Import', () => {
 				if (path === LAST_DELIVERED) store.becomeUnreachable();
 			});
 
-			const refusal = await refusalOf(() =>
-				commitProjectImport(store, failing, DESTINATIONS, OPTIONS)
-			);
-
+			const refusal = await refusalOf(() => importInto(store, DESTINATIONS, OPTIONS, failing));
 			expect(refusal.refusal).toBe('unresolved-residue');
-			// The bytes that did land are still named by a marker, so the Workspace does not open and
-			// nothing enumerates them. That is what makes the residue recoverable rather than orphaned.
 			expect(await readImportTransaction(store)).toEqual({ state: 'unreadable' });
-			expect(Object.keys(snapshot(store))).toContain(IMPORT_TRANSACTION_PATH);
+			expect(Object.keys(contents(store))).toContain(IMPORT_TRANSACTION_PATH);
 		});
 	});
 
 	describe('the operations a rerun after a reload depends on', () => {
-		it('discards only the paths the marker names, and leaves the rest of the Workspace', async () => {
+		it('discards only the paths the marker names, however many times it is run', async () => {
 			const partial = seed({
 				...BEFORE,
 				[MANIFEST_DESTINATION]: PROJECT_JSON,
-				[`images/${FRESH_IMAGE}/info.json`]: CLOSURE['images/amsterdam-1625/info.json'] as string
+				[FRESH_INFO]: CLOSURE['images/amsterdam-1625/info.json'] as string
 			});
 			partial.plant(IMPORT_TRANSACTION_PATH, serialiseImportTransaction(COMMITTED));
 
 			await discardImportTransaction(partial, COMMITTED);
-
-			expect(snapshot(partial)).toEqual(BEFORE);
-		});
-
-		it('discards the same way however many times it is run', async () => {
-			const partial = seed({ ...BEFORE, [MANIFEST_DESTINATION]: PROJECT_JSON });
-			partial.plant(IMPORT_TRANSACTION_PATH, serialiseImportTransaction(COMMITTED));
-
+			expect(contents(partial)).toEqual(BEFORE);
 			await discardImportTransaction(partial, COMMITTED);
-			await discardImportTransaction(partial, COMMITTED);
-
-			expect(snapshot(partial)).toEqual(BEFORE);
+			expect(contents(partial)).toEqual(BEFORE);
 		});
 
 		it('clears a resolved marker idempotently', async () => {
@@ -595,14 +297,258 @@ describe('committing a Project Import', () => {
 			await clearImportTransaction(store);
 			await clearImportTransaction(store);
 
-			expect(snapshot(store)).toEqual(BEFORE);
+			expect(contents(store)).toEqual(BEFORE);
 		});
 
 		it('reports a marker it cannot read as present rather than as absent', async () => {
 			const store = seed();
 			store.plant(IMPORT_TRANSACTION_PATH, encode('half a jso'));
-
 			expect(await readImportTransaction(store)).toEqual({ state: 'unreadable' });
+		});
+	});
+});
+
+class CrashingStore extends MemoryProjectStore {
+	#landed = { bytes: 0, rename: 0 };
+	#crash: { readonly after: number; readonly step: 'bytes' | 'rename' } | undefined;
+
+	crashAfter(after: number, step: 'bytes' | 'rename'): void {
+		this.#crash = { after, step };
+	}
+
+	protected override async writeBytes(path: StorePath, bytes: Bytes): Promise<void> {
+		await super.writeBytes(path, bytes);
+		this.#count('bytes');
+	}
+
+	protected override async renameTempFile(from: StorePath, to: StorePath): Promise<void> {
+		await super.renameTempFile(from, to);
+		this.#count('rename');
+	}
+
+	#count(step: 'bytes' | 'rename'): void {
+		this.#landed[step] += 1;
+		const crash = this.#crash;
+		if (crash !== undefined && crash.step === step && this.#landed[step] === crash.after) {
+			this.becomeUnreachable(new Error('the tab was closed'));
+		}
+	}
+}
+
+class StoppingStore extends MemoryProjectStore {
+	#deletions = 0;
+	#stopAfter = Number.POSITIVE_INFINITY;
+
+	stopAfterDeletions(after: number): void {
+		this.#stopAfter = after;
+	}
+
+	protected override async deletePath(path: StorePath): Promise<void> {
+		await super.deletePath(path);
+		this.#deletions += 1;
+		if (this.#deletions === this.#stopAfter)
+			this.becomeUnreachable(new Error('the tab was closed'));
+	}
+}
+
+class UnmeasurableStore extends MemoryProjectStore {
+	protected override async byteLength(): Promise<number> {
+		throw new Error('the folder was unmounted');
+	}
+}
+
+const restart = (crashed: MemoryProjectStore): MemoryProjectStore => {
+	const restarted = new MemoryProjectStore();
+	for (const [path, bytes] of crashed.snapshot()) restarted.plant(path, bytes);
+	return restarted;
+};
+
+const failureOf = (run: () => Promise<unknown>) => rejection(ImportRecoveryFailedError, run);
+
+const crashedAfter = async (
+	landed: number,
+	step: 'bytes' | 'rename'
+): Promise<MemoryProjectStore> => {
+	const store = planted(BEFORE, new CrashingStore());
+	store.crashAfter(landed, step);
+	await expect(importInto(store)).rejects.toThrow();
+	return restart(store);
+};
+
+describe('recovering an interrupted Project Import', () => {
+	it('leaves a Workspace with nothing outstanding exactly as it is, before and after an Import', async () => {
+		const store = planted(BEFORE);
+		expect(await recoverProjectImport(store)).toEqual<ImportRecovery>({ outcome: 'nothing' });
+		expect(contents(store)).toEqual(BEFORE);
+
+		await importInto(store);
+
+		expect(await recoverProjectImport(store)).toEqual<ImportRecovery>({ outcome: 'nothing' });
+		expect(contents(store)).toEqual(AFTER);
+	});
+
+	describe('restart at every durable boundary', () => {
+		const crashes = Array.from({ length: WRITES }, (_, i) => i + 1).flatMap((landed) => {
+			const settles = landed === WRITES ? 'the complete Import' : 'the Workspace as it was';
+			const durable = [settles, `with ${landed} writes durable`, landed, 'rename'] as const;
+			if (landed === WRITES) return [durable];
+			return [durable, [settles, `inside write ${landed + 1}`, landed + 1, 'bytes'] as const];
+		});
+
+		it.each(crashes)('settles to %s when the tab dies %s', async (settles, _, landed, step) => {
+			const restarted = await crashedAfter(landed, step);
+			expect(await readImportTransaction(restarted)).not.toBeNull();
+
+			await recoverProjectImport(restarted);
+
+			expect(contents(restarted)).toEqual(settles === 'the complete Import' ? AFTER : BEFORE);
+			expect(await readImportTransaction(restarted)).toBeNull();
+		});
+
+		it('reports which transaction it swept, and which it finished', async () => {
+			const swept = await crashedAfter(2, 'rename');
+			const finished = await crashedAfter(WRITES, 'rename');
+
+			expect(await recoverProjectImport(swept)).toEqual<ImportRecovery>({
+				outcome: 'discarded',
+				transaction: TRANSACTION
+			});
+			expect(await recoverProjectImport(finished)).toEqual<ImportRecovery>({
+				outcome: 'completed',
+				transaction: TRANSACTION
+			});
+		});
+
+		it('leaves a marker that never landed alone, having no transaction to recover', async () => {
+			const restarted = await crashedAfter(1, 'bytes');
+			expect(await recoverProjectImport(restarted)).toEqual<ImportRecovery>({ outcome: 'nothing' });
+			expect(await restarted.list('')).toEqual(Object.keys(BEFORE).sort());
+		});
+	});
+
+	const provisional = {
+		...BEFORE,
+		[MANIFEST_DESTINATION]: PROJECT_JSON,
+		[FRESH_INFO]: CLOSURE['images/amsterdam-1625/info.json'] as string,
+		[IMPORT_TRANSACTION_PATH]: marker(WRITING)
+	};
+	const committed = { ...AFTER, [IMPORT_TRANSACTION_PATH]: marker(COMMITTED) };
+
+	describe('an uncommitted transaction', () => {
+		it('removes only the paths its marker names, however many times it runs', async () => {
+			const tile = { 'images/blaeu-1649/0/0/0.jpg': 'the user’s own tile' };
+			const store = planted({ ...provisional, ...tile });
+
+			await recoverProjectImport(store);
+			expect(contents(store)).toEqual({ ...BEFORE, ...tile });
+			await recoverProjectImport(store);
+			expect(contents(store)).toEqual({ ...BEFORE, ...tile });
+		});
+
+		it('reclaims the abandoned write a crash left beside a provisional path', async () => {
+			const store = planted(provisional);
+			store.plant(`images/${FRESH_IMAGE}/.info.json.abandoned${TEMP_PATH_SUFFIX}`, encode('half'));
+
+			await recoverProjectImport(store);
+
+			expect(contents(store)).toEqual(BEFORE);
+		});
+
+		it('never leaves the imported manifest behind a path it could not clean', async () => {
+			const store = planted(provisional, new StoppingStore());
+			store.stopAfterDeletions(1);
+
+			await failureOf(() => recoverProjectImport(store));
+
+			const rest = { ...provisional };
+			delete rest[MANIFEST_DESTINATION];
+			expect(contents(store)).toEqual(rest);
+		});
+	});
+
+	describe('a committed transaction', () => {
+		it('finishes the bookkeeping and keeps every imported file, however many times it runs', async () => {
+			const store = planted(committed);
+
+			expect(await recoverProjectImport(store)).toEqual<ImportRecovery>({
+				outcome: 'completed',
+				transaction: TRANSACTION
+			});
+			expect(contents(store)).toEqual(AFTER);
+			await recoverProjectImport(store);
+			expect(contents(store)).toEqual(AFTER);
+		});
+
+		it('refuses to open a Workspace whose committed closure is not all there', async () => {
+			const incomplete = { ...committed };
+			delete incomplete[`images/${FRESH_IMAGE}/0/0/0.jpg`];
+			const store = planted(incomplete);
+
+			expect((await failureOf(() => recoverProjectImport(store))).failure).toBe('incomplete');
+			expect(await readImportTransaction(store)).toEqual(COMMITTED);
+			expect(contents(store)).toEqual(incomplete);
+		});
+
+		it('refuses when a committed closure cannot be verified', async () => {
+			const store = planted(committed, new UnmeasurableStore());
+
+			expect((await failureOf(() => recoverProjectImport(store))).failure).toBe('unverifiable');
+			expect(await readImportTransaction(store)).toEqual(COMMITTED);
+		});
+	});
+
+	it.each([
+		['a listed path of an uncommitted', provisional, WRITING, BEFORE],
+		['the marker of a committed', committed, COMMITTED, AFTER]
+	])(
+		'keeps the Workspace unavailable when %s transaction will not go, and retries next time',
+		async (_, files, mark, settled) => {
+			const store = planted(files);
+			store.failNextDelete();
+
+			expect((await failureOf(() => recoverProjectImport(store))).failure).toBe('residue');
+			expect(await readImportTransaction(store)).toEqual(mark);
+
+			await recoverProjectImport(store);
+
+			expect(contents(store)).toEqual(settled);
+		}
+	);
+
+	describe('a Workspace it cannot make a decision about', () => {
+		it('refuses a marker it cannot read rather than guessing, in the words of the person who asked', async () => {
+			const store = planted(BEFORE);
+			store.plant(IMPORT_TRANSACTION_PATH, encode('half a jso'));
+
+			const failure = await failureOf(() => recoverProjectImport(store));
+			expect(failure.failure).toBe('unreadable');
+			expect(contents(store)).toEqual({ ...BEFORE, [IMPORT_TRANSACTION_PATH]: 'half a jso' });
+			expect(failure.message).not.toMatch(/import\.json|amsterdam-1625-2|tx-1/);
+			expect(failure.message).toMatch(/Import/);
+		});
+
+		it('refuses when the backing will not answer at all', async () => {
+			const failure = await failureOf(() => recoverProjectImport(MemoryProjectStore.unreachable()));
+			expect(failure.failure).toBe('unreadable');
+		});
+
+		it.each([
+			['a marker from a build it has never heard of', { ...WRITING, formatVersion: 99 }, BEFORE],
+			[
+				'a Project directory the marker does not name',
+				{ ...WRITING, project: 'nowhere/project.json' as StorePath, paths: [] },
+				{ ...BEFORE, [MANIFEST_DESTINATION]: PROJECT_JSON }
+			]
+		])('settles %s by its inventory alone', async (_, mark, settled) => {
+			const store = planted({
+				...BEFORE,
+				[MANIFEST_DESTINATION]: PROJECT_JSON,
+				[IMPORT_TRANSACTION_PATH]: marker(mark)
+			});
+
+			await recoverProjectImport(store);
+
+			expect(contents(store)).toEqual(settled);
 		});
 	});
 });

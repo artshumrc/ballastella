@@ -1,12 +1,6 @@
-// CONTRIBUTING.md's Seam 1 for the number an Annotation is known by: a rule over a collection's
-// order, and a claim about what it must never reach.
-//
-// Here rather than through a DOM because that is all an ordinal is: a number computed from a
-// collection's order, which is why it belongs at Seam 1. What a row and a mark do with the number is
-// asserted where they are.
-
 import { describe, expect, test } from 'vitest';
 
+import { decode } from '../test-support.js';
 import {
 	addAnnotation,
 	emptyCollection,
@@ -23,11 +17,8 @@ const pin = (id: string) =>
 const collectionOf = (...ids: string[]): AnnotationCollection =>
 	ids.reduce((collection, id) => addAnnotation(collection, pin(id)), emptyCollection());
 
-/** What the whole collection is numbered, which is what both surfaces render. */
 const ordinalsOf = (collection: AnnotationCollection): number[] =>
 	collection.annotations.map((_, index) => annotationOrdinal(index));
-
-const utf8 = (encoded: Uint8Array): string => new TextDecoder().decode(encoded);
 
 describe('an Annotation’s number is its place in the collection', () => {
 	test('numbering starts at 1 and follows the order the collection already has', () => {
@@ -35,20 +26,16 @@ describe('an Annotation’s number is its place in the collection', () => {
 	});
 
 	test('a newly drawn Annotation takes the next number, because it goes on the end', () => {
-		const three = collectionOf('a1', 'a2', 'a3');
-
-		expect(ordinalsOf(addAnnotation(three, pin('a4')))).toEqual([1, 2, 3, 4]);
+		expect(ordinalsOf(addAnnotation(collectionOf('a1', 'a2', 'a3'), pin('a4')))).toEqual([
+			1, 2, 3, 4
+		]);
 	});
 
 	test('deleting one renumbers the ones after it, by counting again rather than by writing', () => {
-		// The whole of "renumbering is a re-render": the ordinal is not stored anywhere, so the second
-		// Annotation *becoming* number 2 is what the same function says about a shorter list.
 		const three = collectionOf('a1', 'a2', 'a3');
 		const two = removeAnnotation(three, 'a1');
-
 		expect(two.annotations.map((annotation) => annotation.id)).toEqual(['a2', 'a3']);
 		expect(ordinalsOf(two)).toEqual([1, 2]);
-		// And the survivors are the identical objects: nothing was rewritten to renumber them.
 		expect(two.annotations[0]).toBe(three.annotations[1]);
 		expect(two.annotations[1]).toBe(three.annotations[2]);
 	});
@@ -56,38 +43,25 @@ describe('an Annotation’s number is its place in the collection', () => {
 
 describe('the ordinal is display state and reaches no file (ADR-0002)', () => {
 	test('the bytes an Annotation Layer is written as carry no number at all', () => {
-		// ⚠ **This is the assertion the mutation check breaks.** Write the ordinal into a feature's
-		// `properties` — or onto the `Feature` object — and this goes red, alongside
-		// `e2e/editor-annotations.e2e.ts`'s byte-identity claim over real files in OPFS.
-		const collection = collectionOf('a1', 'a2', 'a3');
-		expect(ordinalsOf(collection)).toEqual([1, 2, 3]);
-
-		const written = utf8(serialiseAnnotations(collection));
-
+		const written = decode(serialiseAnnotations(collectionOf('a1', 'a2', 'a3')));
 		expect(written).not.toMatch(/ordinal/i);
 		const document = JSON.parse(written) as {
 			features: { properties: Record<string, unknown> }[];
 		};
-		// A pin drawn with default styling carries no properties at all (ADR-0009), so an ordinal
-		// arriving in `properties` is visible as the object ceasing to be empty.
 		expect(document.features.map((feature) => feature.properties)).toEqual([{}, {}, {}]);
-		expect(document.features.map((feature) => Object.keys(feature).sort())).toEqual([
-			['geometry', 'id', 'properties', 'type'],
-			['geometry', 'id', 'properties', 'type'],
-			['geometry', 'id', 'properties', 'type']
-		]);
+		expect(document.features.map((feature) => Object.keys(feature).sort())).toEqual(
+			Array(3).fill(['geometry', 'id', 'properties', 'type'])
+		);
 	});
 
 	test('deleting the first Annotation renumbers the rest without changing their bytes', () => {
-		// Ordinals 2 and 3 become 1 and 2, and the two Annotations that survive serialise to exactly
-		// the bytes they had before — which is only possible because the number is nowhere in them.
 		const three = collectionOf('a1', 'a2', 'a3');
-		const survivorsBefore = utf8(serialiseAnnotations({ annotations: three.annotations.slice(1) }));
-
+		const survivorsBefore = decode(
+			serialiseAnnotations({ annotations: three.annotations.slice(1) })
+		);
 		const two = removeAnnotation(three, 'a1');
-
 		expect(ordinalsOf(three).slice(1)).toEqual([2, 3]);
 		expect(ordinalsOf(two)).toEqual([1, 2]);
-		expect(utf8(serialiseAnnotations(two))).toBe(survivorsBefore);
+		expect(decode(serialiseAnnotations(two))).toBe(survivorsBefore);
 	});
 });

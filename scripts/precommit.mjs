@@ -1,11 +1,3 @@
-// The full gate, in the order that fails cheapest first.
-//
-// Stray dev servers are cleared before anything runs: a `vite dev` on 5173 does not break lint or
-// unit tests, but it competes for CPU with the browser suite and has been read as flake.
-//
-// `check:deployment` is deliberately absent — it asks questions about a published site, not about a
-// working tree, and it is not a thing a commit can be right or wrong about.
-
 import { spawn } from 'node:child_process';
 import process from 'node:process';
 
@@ -25,7 +17,6 @@ const run = (command, args) =>
 	});
 
 const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
-
 const only = process.argv.slice(2);
 const stages =
 	only.length > 0
@@ -46,8 +37,6 @@ for (const stage of stages) {
 	const code = await run(stage.command, stage.args);
 	done.push({ name: stage.name, code, ms: Date.now() - at });
 
-	// Stop at the first failure: the later stages are the slow ones, and a red lint makes a green
-	// browser suite uninteresting.
 	if (code !== 0) break;
 }
 

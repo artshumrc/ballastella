@@ -1,13 +1,7 @@
-// CONTRIBUTING.md's Seam 1 for Annotations: the domain model and the file, in Node, with the bytes
-// as the assertion.
-//
-// The sanitisation half of ADR-0009 is in `markdown.browser.test.ts`, which has to be a browser
-// project because DOMPurify sanitises by parsing into a real DOM — see the note at the top of it.
-
 import { describe, expect, test } from 'vitest';
 
 import type { Bytes } from '../store/project-store.js';
-
+import { decode, encode } from '../test-support.js';
 import {
 	ANNOTATION_COLORS,
 	DASHED_DASHARRAY,
@@ -16,7 +10,6 @@ import {
 	LABEL_MARKER_SYMBOL,
 	MARKER_SIZES,
 	SIMPLESTYLE_DEFAULTS,
-	SIMPLESTYLE_PROPERTIES,
 	addAnnotation,
 	annotationAnchor,
 	annotationColorName,
@@ -39,7 +32,6 @@ import {
 	styleForNewAnnotation,
 	styleForNewLabel,
 	simpleStyleViolations,
-	withLineStyle,
 	type Annotation,
 	type AnnotationCollection,
 	type AnnotationProperties
@@ -52,76 +44,121 @@ import {
 	toRenderCollection
 } from './render.js';
 
-const utf8 = (encoded: Uint8Array): string => new TextDecoder().decode(encoded);
-// Annotated as `Bytes`, which is `Uint8Array<ArrayBuffer>`: Node's `TextEncoder` is typed as returning
-// the wider `ArrayBufferLike`, so an unannotated helper infers a type the store's own does not accept.
-const bytes = (text: string): Bytes => new TextEncoder().encode(text) as Bytes;
-
-/** Ids are handed in, so every assertion about the written file is about a fixed document. */
-const counting = () => {
-	let next = 0;
-	return () => `a${(next += 1)}`;
-};
+const pairs = (...flat: number[]): [number, number][] =>
+	Array.from({ length: flat.length / 2 }, (_, i) => [flat[2 * i]!, flat[2 * i + 1]!]);
 
 const pin = (id: string, lng = 4.9, lat = 52.37) =>
 	newAnnotation({ id, geometry: { type: 'Point', coordinates: [lng, lat] } });
 
-const collectionOf = (...annotations: ReturnType<typeof pin>[]): AnnotationCollection =>
+const zuiderzee = newAnnotation({
+	id: 'a1',
+	geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+	title: 'Zuiderzee',
+	style: {
+		'marker-symbol': LABEL_MARKER_SYMBOL,
+		'marker-color': '#ffffff',
+		fill: '#1976d2',
+		'fill-opacity': 0.8,
+		'marker-size': 'large'
+	}
+});
+
+const collectionOf = (...annotations: Annotation[]): AnnotationCollection =>
 	annotations.reduce(addAnnotation, emptyCollection());
 
+const at = (id: string, properties: Record<string, unknown>) => ({
+	id,
+	geometry: { type: 'Point' as const, coordinates: [0, 0] as [number, number] },
+	properties
+});
+
+const withGeometry = (geometry: unknown, properties: object = {}): Annotation =>
+	({ id: 'a1', geometry, properties }) as Annotation;
+
+const pointWith = (properties: object): Annotation =>
+	withGeometry({ type: 'Point', coordinates: [4.9, 52.37] }, properties);
+
+const feature = (id: string, properties: object = {}, geometry: unknown = null) => ({
+	type: 'Feature',
+	id,
+	properties,
+	geometry
+});
+
+const written = (collection: AnnotationCollection): string =>
+	decode(serialiseAnnotations(collection));
+
+const writtenJson = (collection: AnnotationCollection) => JSON.parse(written(collection));
+
+const featuresFile = (...features: unknown[]): Bytes =>
+	encode(JSON.stringify({ type: 'FeatureCollection', features }));
+
+const tabbed = (document: unknown): string => `${JSON.stringify(document, null, '\t')}\n`;
+const tabbedFile = (...features: unknown[]) => tabbed({ type: 'FeatureCollection', features });
+const rewritten = (original: string): string => written(parseAnnotations(encode(original)));
+
+const renderProperties = (collection: AnnotationCollection) =>
+	toRenderCollection(collection).features.map(
+		(feature) => feature['properties'] as Record<string, unknown>
+	);
+
+const idsOf = (collection: AnnotationCollection) =>
+	collection.annotations.map((annotation) => annotation.id);
+
 describe('drawing', () => {
-	test('a point, a line, and a polygon all round-trip through the file', () => {
-		const drawn = collectionOf(
-			pin('a1'),
-			newAnnotation({
-				id: 'a2',
-				geometry: {
-					type: 'LineString',
-					coordinates: [
-						[4.9, 52.37],
-						[5.1, 52.4]
-					]
-				}
-			}),
-			newAnnotation({
-				id: 'a3',
-				geometry: {
-					type: 'Polygon',
-					coordinates: [
-						[
-							[4.9, 52.3],
-							[5, 52.3],
-							[5, 52.4],
-							[4.9, 52.3]
-						]
-					]
-				}
-			})
+	test('a point, a line, and a polygon all round-trip through a GeoJSON FeatureCollection', () => {
+		const drawn = setText(
+			collectionOf(
+				pin('a1'),
+				newAnnotation({
+					id: 'a2',
+					geometry: { type: 'LineString', coordinates: pairs(4.9, 52.37, 5.1, 52.4) }
+				}),
+				newAnnotation({
+					id: 'a3',
+					geometry: {
+						type: 'Polygon',
+						coordinates: [pairs(4.9, 52.3, 5, 52.3, 5, 52.4, 4.9, 52.3)]
+					}
+				})
+			),
+			'a1',
+			{
+				title: 'Warehouses',
+				description: 'The *west* quay, per [the survey](https://example.org/s).'
+			}
 		);
 
+		const file = writtenJson(drawn);
+		expect(file.type).toBe('FeatureCollection');
+		expect(file.features[0]).toMatchObject({
+			type: 'Feature',
+			id: 'a1',
+			geometry: { type: 'Point', coordinates: [4.9, 52.37] }
+		});
 		const read = parseAnnotations(serialiseAnnotations(drawn));
-
-		expect(read.annotations.map((annotation) => annotation.geometry?.type)) //
-			.toEqual(['Point', 'LineString', 'Polygon']);
+		expect(read.annotations.map((annotation) => annotation.geometry?.type)).toEqual([
+			'Point',
+			'LineString',
+			'Polygon'
+		]);
 		expect(read).toEqual(drawn);
 	});
 
 	test('a Circle round-trips as a portable polygon with semantic center and radius', () => {
 		const center: [number, number] = [4.9, 52.37];
 		const geometry = circleGeometry(center, 1_000);
-		const drawn: AnnotationCollection = {
+		const encoded = serialiseAnnotations({
 			annotations: [newAnnotation({ id: 'circle', geometry })]
-		};
+		});
 
-		const encoded = serialiseAnnotations(drawn);
-		const file = JSON.parse(utf8(encoded));
+		const file = JSON.parse(decode(encoded));
 		expect(file.features[0].geometry.type).toBe('Polygon');
 		expect(file.features[0].geometry.coordinates[0]).toHaveLength(65);
 		expect(file.features[0]['ballastella:circle']).toEqual({ center, radiusMeters: 1_000 });
-
 		const read = parseAnnotations(encoded);
 		expect(read.annotations[0]?.geometry).toEqual(geometry);
-		expect(utf8(serialiseAnnotations(read))).toBe(utf8(encoded));
+		expect(written(read)).toBe(decode(encoded));
 	});
 
 	test('every point of a generated Circle is the stored radius from its center', () => {
@@ -132,53 +169,28 @@ describe('drawing', () => {
 	});
 
 	test('a new Annotation carries no style properties at all', () => {
-		// **`newAnnotation` invents nothing**, which is still a criterion now that a drawn Annotation does
-		// start on a colour: the style comes from `styleForNewAnnotation` and is passed *in*, so there is
-		// exactly one place that decides what a fresh shape is drawn with. A default living here as well
-		// would be a second answer to that question, reachable by any caller that forgot the first.
 		const drawn = pin('a1');
-
 		expect(drawn.properties).toEqual({});
-		expect(utf8(serialiseAnnotations(collectionOf(drawn)))).toContain('"properties": {}');
-		expect(utf8(serialiseAnnotations(collectionOf(drawn)))).not.toContain('stroke');
-	});
-
-	test('the written file is a valid GeoJSON FeatureCollection', () => {
-		const written = JSON.parse(utf8(serialiseAnnotations(collectionOf(pin('a1')))));
-
-		expect(written.type).toBe('FeatureCollection');
-		expect(Array.isArray(written.features)).toBe(true);
-		expect(written.features[0]).toMatchObject({
-			type: 'Feature',
-			id: 'a1',
-			geometry: { type: 'Point', coordinates: [4.9, 52.37] }
-		});
+		expect(written(collectionOf(drawn))).toContain('"properties": {}');
+		expect(written(collectionOf(drawn))).not.toContain('stroke');
 	});
 
 	test('reshaping replaces the geometry and nothing else', () => {
 		const before = setText(collectionOf(pin('a1')), 'a1', { title: 'The quay' });
-
 		const after = setGeometry(before, 'a1', { type: 'Point', coordinates: [5, 52.4] });
-
 		expect(after.annotations[0]?.geometry).toEqual({ type: 'Point', coordinates: [5, 52.4] });
 		expect(after.annotations[0]?.properties).toEqual({ title: 'The quay' });
 	});
 
 	test('deleting an Annotation removes it from the file', () => {
-		const before = collectionOf(pin('a1'), pin('a2'), pin('a3'));
-
-		const after = removeAnnotation(before, 'a2');
-
-		expect(after.annotations.map((annotation) => annotation.id)).toEqual(['a1', 'a3']);
-		expect(utf8(serialiseAnnotations(after))).not.toContain('a2');
+		const after = removeAnnotation(collectionOf(pin('a1'), pin('a2'), pin('a3')), 'a2');
+		expect(idsOf(after)).toEqual(['a1', 'a3']);
+		expect(written(after)).not.toContain('a2');
 		expect(findAnnotation(after, 'a2')).toBeUndefined();
 	});
 
 	test('deleting an Annotation that is not there is the same collection, so nothing is written', () => {
-		// Identity, not equality: the caller writes only when the collection changed, which is what
-		// keeps an untouched file byte-identical.
 		const before = collectionOf(pin('a1'));
-
 		expect(removeAnnotation(before, 'nobody')).toBe(before);
 		expect(setText(before, 'nobody', { title: 'x' })).toBe(before);
 		expect(setStyle(before, 'nobody', { stroke: '#000000' })).toBe(before);
@@ -186,186 +198,110 @@ describe('drawing', () => {
 });
 
 describe('reordering the Annotations in one Layer', () => {
-	const idsOf = (collection: AnnotationCollection) =>
-		collection.annotations.map((annotation) => annotation.id);
+	const before = collectionOf(pin('a1'), pin('a2'), pin('a3'));
+	const two = collectionOf(pin('a1'), pin('a2'));
 
-	test('an Annotation moves to the position it was dropped on', () => {
-		const before = collectionOf(pin('a1'), pin('a2'), pin('a3'));
-
-		expect(idsOf(moveAnnotation(before, 'a3', 0))).toEqual(['a3', 'a1', 'a2']);
-		expect(idsOf(moveAnnotation(before, 'a1', 2))).toEqual(['a2', 'a3', 'a1']);
-		expect(idsOf(moveAnnotation(before, 'a2', 0))).toEqual(['a2', 'a1', 'a3']);
-	});
-
-	test('a position outside the collection is clamped, so an end stop is not an exception', () => {
-		const before = collectionOf(pin('a1'), pin('a2'), pin('a3'));
-
-		expect(idsOf(moveAnnotation(before, 'a2', -1))).toEqual(['a2', 'a1', 'a3']);
-		expect(idsOf(moveAnnotation(before, 'a2', 99))).toEqual(['a1', 'a3', 'a2']);
+	test.each([
+		['a3', 0, ['a3', 'a1', 'a2']],
+		['a1', 2, ['a2', 'a3', 'a1']],
+		['a2', 0, ['a2', 'a1', 'a3']],
+		['a2', -1, ['a2', 'a1', 'a3']],
+		['a2', 99, ['a1', 'a3', 'a2']]
+	])('%s dropped at %i, clamped to the collection, gives %j', (id, to, expected) => {
+		expect(idsOf(moveAnnotation(before, id, to))).toEqual(expected);
 	});
 
 	test('a move that changes nothing is the same collection, so nothing is written', () => {
-		// Identity, not equality: the caller writes only when the collection changed, which is what
-		// keeps an untouched file byte-identical.
-		const before = collectionOf(pin('a1'), pin('a2'));
-
-		expect(moveAnnotation(before, 'a1', 0)).toBe(before);
-		expect(moveAnnotation(before, 'a2', 5)).toBe(before);
-		expect(moveAnnotation(before, 'nobody', 0)).toBe(before);
+		expect(moveAnnotation(two, 'a1', 0)).toBe(two);
+		expect(moveAnnotation(two, 'a2', 5)).toBe(two);
+		expect(moveAnnotation(two, 'nobody', 0)).toBe(two);
 	});
 
 	test('the Annotations that moved are the same objects, so no property is rewritten', () => {
-		const before = collectionOf(pin('a1'), pin('a2'));
-
-		const after = moveAnnotation(before, 'a2', 0);
-
-		expect(after.annotations[0]).toBe(before.annotations[1]);
-		expect(after.annotations[1]).toBe(before.annotations[0]);
+		const after = moveAnnotation(two, 'a2', 0);
+		expect(after.annotations[0]).toBe(two.annotations[1]);
+		expect(after.annotations[1]).toBe(two.annotations[0]);
 	});
 });
 
 describe('an unchanged file serialises byte-identically', () => {
-	// `e2e/editor-layers.e2e.ts` asserts that reordering, renaming, toggling, and setting opacity
-	// leave `annotations/*.geojson` byte-identical. That is a claim about the write path never being
-	// reached; this is the stronger claim that reaching it with nothing changed costs nothing either,
-	// which is what makes a Workspace in git produce readable diffs and what ADR-0010 asks for.
-
-	test('a file this app wrote parses and writes back to the identical bytes', () => {
-		const original = serialiseAnnotations(
+	test.each([
+		[
+			'a file this app wrote',
 			setStyle(
 				setText(collectionOf(pin('a1'), pin('a2')), 'a1', {
 					title: 'Warehouses',
-					description: 'The *west* quay.'
+					description: 'The *west* quay, per [the survey](https://example.org/s).'
 				}),
 				'a2',
 				{ stroke: '#aa3311', 'stroke-dasharray': DASHED_DASHARRAY }
 			)
-		);
-
-		const again = serialiseAnnotations(parseAnnotations(original));
-
-		expect(utf8(again)).toBe(utf8(original));
-		expect([...again]).toEqual([...original]);
-	});
-
-	test('a Layer containing a Label round trips through the identical bytes', () => {
-		const original = serialiseAnnotations(
-			collectionOf(
-				newAnnotation({
-					id: 'a1',
-					geometry: { type: 'Point', coordinates: [4.9, 52.37] },
-					title: 'Zuiderzee',
-					style: {
-						'marker-symbol': LABEL_MARKER_SYMBOL,
-						'marker-color': '#ffffff',
-						fill: '#1976d2',
-						'fill-opacity': 0.8,
-						'marker-size': 'large'
-					}
-				})
-			)
-		);
-
-		const again = serialiseAnnotations(parseAnnotations(original));
-
-		expect(utf8(again)).toBe(utf8(original));
-		expect([...again]).toEqual([...original]);
+		],
+		['a Layer containing a Label', collectionOf(zuiderzee)]
+	])('%s parses and writes back to the identical bytes', (_name, collection) => {
+		const original = serialiseAnnotations(collection);
+		expect([...serialiseAnnotations(parseAnnotations(original))]).toEqual([...original]);
 	});
 
 	test('an empty Layer written at creation round-trips identically', () => {
-		// `emptyAnnotationCollection` in `layer.ts` is what a new Layer is written with, and this module
-		// has to agree with it byte for byte or the first edit reformats the file.
-		const asCreated = bytes(
-			`${JSON.stringify({ type: 'FeatureCollection', features: [] }, null, '\t')}\n`
-		);
-
-		expect(utf8(serialiseAnnotations(parseAnnotations(asCreated)))).toBe(utf8(asCreated));
-		expect(utf8(serialiseAnnotations(emptyCollection()))).toBe(utf8(asCreated));
+		const asCreated = tabbedFile();
+		expect(rewritten(asCreated)).toBe(asCreated);
+		expect(written(emptyCollection())).toBe(asCreated);
 	});
 
 	test('tab indented with a trailing newline, like project.json and the Alignment', () => {
-		const written = utf8(serialiseAnnotations(collectionOf(pin('a1'))));
-
-		expect(written.endsWith('\n')).toBe(true);
-		expect(written).toContain('\n\t"type": "FeatureCollection"');
+		const file = written(collectionOf(pin('a1')));
+		expect(file.endsWith('\n')).toBe(true);
+		expect(file).toContain('\n\t"type": "FeatureCollection"');
 	});
 
-	test('an unknown collection field and an unknown Annotation field both survive', () => {
-		const original = `${JSON.stringify(
-			{
+	test.each([
+		[
+			'an unknown collection field and an unknown Annotation field both survive',
+			tabbed({
 				type: 'FeatureCollection',
 				features: [
 					{
-						type: 'Feature',
-						id: 'a1',
-						properties: { title: 'x', 'stroke-linecap': 'round' },
-						geometry: { type: 'Point', coordinates: [1, 2] },
+						...feature(
+							'a1',
+							{ title: 'x', 'stroke-linecap': 'round' },
+							{ type: 'Point', coordinates: [1, 2] }
+						),
 						bbox: [1, 2, 1, 2]
 					}
 				],
 				name: 'trade routes'
-			},
-			null,
-			'\t'
-		)}\n`;
-
-		expect(utf8(serialiseAnnotations(parseAnnotations(bytes(original))))).toBe(original);
+			})
+		],
+		[
+			'a tuple from another tool is not rewritten',
+			tabbedFile(feature('a1', { 'stroke-dasharray': [4, 2, 1, 2] }))
+		]
+	])('%s', (_name, original) => {
+		expect(rewritten(original)).toBe(original);
 	});
 
 	test('a geometry kind this build cannot draw is written back unchanged', () => {
-		const original = `${JSON.stringify(
-			{
-				type: 'FeatureCollection',
-				features: [
-					{
-						type: 'Feature',
-						id: 'a1',
-						properties: {},
-						geometry: {
-							type: 'MultiPolygon',
-							coordinates: [
-								[
-									[
-										[1, 2],
-										[3, 4],
-										[1, 2]
-									]
-								]
-							]
-						}
-					}
-				]
-			},
-			null,
-			'\t'
-		)}\n`;
+		const original = tabbedFile(
+			feature('a1', {}, { type: 'MultiPolygon', coordinates: [[pairs(1, 2, 3, 4, 1, 2)]] })
+		);
 
-		const read = parseAnnotations(bytes(original));
+		const read = parseAnnotations(encode(original));
 
 		expect(read.annotations[0]?.geometry).toMatchObject({
 			type: 'foreign',
 			declaredType: 'MultiPolygon'
 		});
-		expect(utf8(serialiseAnnotations(read))).toBe(original);
+		expect(written(read)).toBe(original);
 	});
 });
 
 describe('reading somebody else’s document', () => {
+	const point = { type: 'Point', coordinates: [4.9, 52.37] };
+
 	test('a Point with marker-symbol label and a title opens as a Label', () => {
 		const read = parseAnnotations(
-			bytes(
-				JSON.stringify({
-					type: 'FeatureCollection',
-					features: [
-						{
-							type: 'Feature',
-							id: 'a1',
-							properties: { 'marker-symbol': 'label', title: 'Zuiderzee' },
-							geometry: { type: 'Point', coordinates: [4.9, 52.37] }
-						}
-					]
-				})
-			)
+			featuresFile(feature('a1', { 'marker-symbol': 'label', title: 'Zuiderzee' }, point))
 		);
 
 		expect(isLabel(read.annotations[0]!)).toBe(true);
@@ -373,98 +309,56 @@ describe('reading somebody else’s document', () => {
 
 	test('an unrecognised marker-symbol stays on its Pin after another Annotation changes', () => {
 		const read = parseAnnotations(
-			bytes(
-				JSON.stringify({
-					type: 'FeatureCollection',
-					features: [
-						{
-							type: 'Feature',
-							id: 'harbor',
-							properties: { 'marker-symbol': 'harbor' },
-							geometry: { type: 'Point', coordinates: [4.9, 52.37] }
-						},
-						{
-							type: 'Feature',
-							id: 'other',
-							properties: {},
-							geometry: { type: 'Point', coordinates: [5, 52.4] }
-						}
-					]
-				})
+			featuresFile(
+				feature('harbor', { 'marker-symbol': 'harbor' }, point),
+				feature('other', {}, point)
 			)
 		);
 
-		const written = parseAnnotations(
-			serialiseAnnotations(setText(read, 'other', { title: 'An unrelated edit' }))
-		);
-		const harbor = findAnnotation(written, 'harbor')!;
+		const harbor = findAnnotation(
+			parseAnnotations(
+				serialiseAnnotations(setText(read, 'other', { title: 'An unrelated edit' }))
+			),
+			'harbor'
+		)!;
 
 		expect(isLabel(harbor)).toBe(false);
 		expect(harbor.properties['marker-symbol']).toBe('harbor');
 	});
 
 	test('bytes that are not JSON are surfaced, never replaced with an empty collection', () => {
-		// Silently substituting an empty collection would show a scholar none of their Annotations and
-		// then overwrite them on the next save.
-		expect(() => parseAnnotations(bytes('{not json'), { path: 'annotations/x.geojson' })) //
-			.toThrow(AnnotationsUnreadableError);
-		expect(() => parseAnnotations(bytes('[]'))).toThrow(/not a JSON object/);
+		expect(() => parseAnnotations(encode('{not json'), { path: 'annotations/x.geojson' })).toThrow(
+			AnnotationsUnreadableError
+		);
+		expect(() => parseAnnotations(encode('[]'))).toThrow(/not a JSON object/);
 	});
 
 	test('an id-less Feature is given one, and an integer id becomes its string', () => {
 		const read = parseAnnotations(
-			bytes(
-				JSON.stringify({
-					type: 'FeatureCollection',
-					features: [
-						{ type: 'Feature', properties: {}, geometry: null },
-						{ type: 'Feature', id: 17, properties: {}, geometry: null }
-					]
-				})
+			featuresFile(
+				{ type: 'Feature', properties: {}, geometry: null },
+				{ type: 'Feature', id: 17, properties: {}, geometry: null }
 			),
-			{ mintId: counting() }
+			{ mintId: () => 'a1' }
 		);
 
-		expect(read.annotations.map((annotation) => annotation.id)).toEqual(['a1', '17']);
+		expect(idsOf(read)).toEqual(['a1', '17']);
 	});
 
 	test('a null geometry is kept, which RFC 7946 permits and geojson.io writes', () => {
-		const read = parseAnnotations(
-			bytes(
-				JSON.stringify({
-					type: 'FeatureCollection',
-					features: [{ type: 'Feature', id: 'a1', properties: { title: 'x' }, geometry: null }]
-				})
-			)
-		);
+		const read = parseAnnotations(featuresFile(feature('a1', { title: 'x' })));
 
 		expect(read.annotations[0]?.geometry).toBeNull();
 		expect(read.annotations[0]?.properties).toEqual({ title: 'x' });
 	});
 
 	test('an element that is not an object is dropped, having nothing in it to keep', () => {
-		const read = parseAnnotations(
-			bytes(JSON.stringify({ type: 'FeatureCollection', features: [null, 7, 'x'] }))
-		);
-
-		expect(read.annotations).toEqual([]);
+		expect(parseAnnotations(featuresFile(null, 7, 'x')).annotations).toEqual([]);
 	});
 
 	test('a Point whose coordinates are not two numbers is foreign rather than repaired', () => {
 		const read = parseAnnotations(
-			bytes(
-				JSON.stringify({
-					type: 'FeatureCollection',
-					features: [
-						{
-							type: 'Feature',
-							id: 'a1',
-							properties: {},
-							geometry: { type: 'Point', coordinates: ['a', 'b'] }
-						}
-					]
-				})
-			)
+			featuresFile(feature('a1', {}, { type: 'Point', coordinates: ['a', 'b'] }))
 		);
 
 		expect(read.annotations[0]?.geometry).toMatchObject({ type: 'foreign' });
@@ -477,41 +371,21 @@ describe('style resolution: properties → simplestyle (ADR-0009, as amended)', 
 		expect(resolveStyle(undefined)).toMatchObject(SIMPLESTYLE_DEFAULTS);
 	});
 
-	test('a feature property is what it draws with', () => {
-		expect(resolveStyle({ stroke: '#ff0000' }).stroke).toBe('#ff0000');
-	});
-
-	test('setting one property leaves the rest at the spec’s own', () => {
-		// Per property, not per object. An object-level fallback would make setting one colour silently
-		// discard every other value — the reason this was written a field at a time when there were two
-		// levels of fallback, and still the reason with one.
+	test('a feature property is what it draws with, and the rest stay at the spec’s own', () => {
 		const resolved = resolveStyle({ stroke: '#ff0000' });
-
+		expect(resolved.stroke).toBe('#ff0000');
 		expect(resolved['stroke-width']).toBe(SIMPLESTYLE_DEFAULTS['stroke-width']);
 		expect(resolved.fill).toBe(SIMPLESTYLE_DEFAULTS.fill);
 	});
 
 	test('a zero opacity is honoured rather than falling through as falsy', () => {
-		// The bug a `??`-with-`||` implementation has, and the reason `pick` compares with `undefined`:
-		// 0 and '' are meaningful values here, and "fully transparent" is a thing a user chooses.
 		expect(resolveStyle({ 'fill-opacity': 0 })['fill-opacity']).toBe(0);
 		expect(resolveStyle({ 'stroke-width': 0 })['stroke-width']).toBe(0);
 	});
 });
 
 describe('a new Annotation is drawn with the last one’s style (ADR-0009, as amended)', () => {
-	const at = (id: string, properties: Record<string, unknown>) => ({
-		id,
-		geometry: { type: 'Point' as const, coordinates: [0, 0] as [number, number] },
-		properties
-	});
-
-	// It used to carry nothing at all, which resolved to simplestyle's own defaults: `#555555` for a
-	// line and a fill, and `#7e7e7e` for a pin. Two different greys, and only one of them a colour the
-	// editor offers — so a freshly drawn pin reported a colour that is on no swatch. The palette's grey
-	// is written explicitly instead, and it is the same value as the spec's own for stroke and fill, so
-	// what changed is what the file *says* rather than what the first Annotation looks like.
-	test('the first Annotation in an empty Layer starts on the palette’s grey', () => {
+	test('the first Annotation in an empty Layer starts on the palette’s grey, and only colours', () => {
 		const grey = {
 			'marker-color': DEFAULT_ANNOTATION_COLOR,
 			stroke: DEFAULT_ANNOTATION_COLOR,
@@ -521,35 +395,23 @@ describe('a new Annotation is drawn with the last one’s style (ADR-0009, as am
 		expect(styleForNewAnnotation(null)).toEqual(grey);
 	});
 
-	// The colours and nothing else: simplestyle has one default for each of these and this app does not
-	// contradict any of them, so writing them would be bytes that repeat the spec.
-	test('nothing but the colours is defaulted', () => {
-		const style = styleForNewAnnotation(null) as Record<string, unknown>;
-		expect(Object.keys(style).toSorted()).toEqual(['fill', 'marker-color', 'stroke']);
-	});
-
-	test('the next one takes the style of the last one drawn', () => {
+	test('the next one takes the last one’s colour, size, opacity and dash, across kinds, and nothing else', () => {
+		const style = {
+			'marker-size': 'large',
+			'marker-color': '#d32f2f',
+			stroke: '#d32f2f',
+			'stroke-opacity': 0.5,
+			'stroke-width': 3,
+			fill: '#1976d2',
+			'fill-opacity': 0.25,
+			'stroke-dasharray': [8, 4]
+		};
 		const collection = {
 			annotations: [
 				at('a', { stroke: '#111111' }),
-				at('b', { stroke: '#ff0000', 'stroke-width': 4, 'stroke-dasharray': [8, 4] })
-			]
-		};
-
-		expect(styleForNewAnnotation(collection)).toEqual({
-			stroke: '#ff0000',
-			'stroke-width': 4,
-			'stroke-dasharray': [8, 4]
-		});
-	});
-
-	test('title, description and unknown properties are not carried onto the next one', () => {
-		// The bug this rules out is a content bug wearing a styling change's clothes: a scholar draws a
-		// second pin and finds it already titled with the first one's words.
-		const collection = {
-			annotations: [
-				at('a', {
-					stroke: '#ff0000',
+				at('b', {
+					'marker-symbol': LABEL_MARKER_SYMBOL,
+					...style,
 					title: 'The old mill',
 					description: 'Built 1780.',
 					unknownProperties: { source: 'a survey' }
@@ -557,12 +419,13 @@ describe('a new Annotation is drawn with the last one’s style (ADR-0009, as am
 			]
 		};
 
-		expect(styleForNewAnnotation(collection)).toEqual({ stroke: '#ff0000' });
+		expect(styleForNewAnnotation(collection)).toEqual(style);
+		expect(
+			styleForNewAnnotation({ annotations: [at('a', { 'marker-symbol': 'harbor' })] })
+		).not.toHaveProperty('marker-symbol');
 	});
 
 	test('an Annotation made with it carries the style as its own properties', () => {
-		// Which is the whole of the amendment: the file says what each Annotation is drawn with, rather
-		// than a reader having to resolve it against something on the Layer.
 		const annotation = newAnnotation({
 			id: 'n1',
 			geometry: { type: 'Point', coordinates: [4.9, 52.37] },
@@ -573,110 +436,28 @@ describe('a new Annotation is drawn with the last one’s style (ADR-0009, as am
 		expect(annotation.properties).toEqual({ stroke: '#ff0000', title: 'Fort' });
 		expect(resolveStyle(annotation.properties).stroke).toBe('#ff0000');
 	});
-
-	// ── WHAT KIND OF THING IT IS DOES NOT INHERIT ─────────────────────────────────────────
-	//
-	// `marker-symbol` is the one style property left out of the copy, because it is the discriminator
-	// that makes a Point a Label rather than anything about how a Point looks. Copied, it would mean
-	// the tool a scholar chose was overridden by whatever they drew last.
-	test('styleForNewAnnotation does not copy marker-symbol, from a Label or from a stranger', () => {
-		const afterALabel = styleForNewAnnotation({
-			annotations: [at('a', { 'marker-symbol': LABEL_MARKER_SYMBOL, 'marker-color': '#ffffff' })]
-		});
-		expect(afterALabel).not.toHaveProperty('marker-symbol');
-		// Stated as the consequence rather than as the absence: whatever is drawn next is not a Label.
-		expect(
-			isLabel({
-				id: 'n1',
-				geometry: { type: 'Point', coordinates: [4.9, 52.37] },
-				properties: afterALabel
-			} as Annotation)
-		).toBe(false);
-
-		// And another tool's symbol is not propagated either. It stays on the Annotation that has it and
-		// is still written back untouched — that claim is asserted where round-tripping is.
-		expect(
-			styleForNewAnnotation({ annotations: [at('a', { 'marker-symbol': 'harbor' })] })
-		).not.toHaveProperty('marker-symbol');
-	});
-
-	test('styleForNewAnnotation still copies colour, size and opacity, across kinds', () => {
-		// The carve-out is one property wide. A scholar who picks red keeps red whatever they draw next,
-		// which is the rule the amendment chose, and the Label they drew it after is no exception.
-		expect(
-			styleForNewAnnotation({
-				annotations: [
-					at('a', {
-						'marker-symbol': LABEL_MARKER_SYMBOL,
-						'marker-size': 'large',
-						'marker-color': '#d32f2f',
-						stroke: '#d32f2f',
-						'stroke-opacity': 0.5,
-						'stroke-width': 3,
-						fill: '#1976d2',
-						'fill-opacity': 0.25,
-						'stroke-dasharray': [8, 4]
-					})
-				]
-			})
-		).toEqual({
-			'marker-size': 'large',
-			'marker-color': '#d32f2f',
-			stroke: '#d32f2f',
-			'stroke-opacity': 0.5,
-			'stroke-width': 3,
-			fill: '#1976d2',
-			'fill-opacity': 0.25,
-			'stroke-dasharray': [8, 4]
-		});
-	});
 });
 
 describe('styleForNewLabel: the first Label in a Layer is not grey on grey', () => {
-	const at = (id: string, properties: Record<string, unknown>) => ({
-		id,
-		geometry: { type: 'Point' as const, coordinates: [0, 0] as [number, number] },
-		properties
-	});
-
-	test('the tool writes the discriminator, so what was drawn is a Label', () => {
-		const style = styleForNewLabel({ annotations: [] });
-
-		expect(style['marker-symbol']).toBe(LABEL_MARKER_SYMBOL);
-		expect(
-			isLabel({
-				id: 'n1',
-				geometry: { type: 'Point', coordinates: [4.9, 52.37] },
-				properties: style
-			} as Annotation)
-		).toBe(true);
-	});
-
-	// ⚠ The defect this rule exists for, and the only one it claims: the first Annotation in a Layer is
-	// given `DEFAULT_ANNOTATION_COLOR` as its `marker-color` *and* its `fill`, and a Label's words are
-	// the first while its chip is the second — grey on grey, placed and unreadable.
-	test('the untouched default is replaced by a legible pair from the palette', () => {
+	test('writes the discriminator and replaces the untouched default with a legible, conformant pair', () => {
 		for (const style of [styleForNewLabel(null), styleForNewLabel({ annotations: [] })]) {
+			expect(style['marker-symbol']).toBe(LABEL_MARKER_SYMBOL);
+			expect(isLabel(pointWith(style))).toBe(true);
 			expect(style['marker-color']).toBe('#000000');
 			expect(style.fill).toBe('#ffffff');
-			// Both are colours the interface offers, so the Style face has a swatch to report.
 			expect(annotationColorName(style['marker-color']!)).toBe('Black');
 			expect(annotationColorName(style.fill!)).toBe('White');
+			expect(simpleStyleViolations(style)).toEqual([]);
 		}
 	});
 
 	test('a colour a scholar chose twice on purpose is kept, whatever it is', () => {
-		// The narrow rule's whole point: only the untouched default moves. Grey words on a grey chip a
-		// user asked for by hand are their business, and this is not the place to argue with them.
 		expect(
 			styleForNewLabel({
 				annotations: [at('a', { 'marker-color': '#1976d2', fill: '#1976d2' })]
 			})
 		).toEqual({ 'marker-color': '#1976d2', fill: '#1976d2', 'marker-symbol': LABEL_MARKER_SYMBOL });
 
-		// And a transparent chip keeps its words: nothing paints the background, so measuring it and
-		// flipping white words to black would turn white words on a dark Map Image into a colour nobody
-		// can see.
 		expect(
 			styleForNewLabel({
 				annotations: [at('a', { 'marker-color': '#ffffff', fill: '#555555', 'fill-opacity': 0 })]
@@ -684,193 +465,95 @@ describe('styleForNewLabel: the first Label in a Layer is not grey on grey', () 
 		).toBe('#ffffff');
 	});
 
-	// ⚠ **A colour value that is not a `#RRGGBB` string at all.** `readProperties` documents that it
-	// carries such a value untouched, so a Layer written by another tool can put anything here — and
-	// `ProjectScreen.svelte` calls `placePoint` as `void`, so a throw in this function is an unhandled
-	// rejection with no Annotation placed and nothing said. Equality against one constant is the whole
-	// of the arithmetic, which is what makes every one of these merely inherit.
 	test.each([
 		['a null text colour', { 'marker-color': null, fill: DEFAULT_ANNOTATION_COLOR }],
 		['a numeric background', { 'marker-color': DEFAULT_ANNOTATION_COLOR, fill: 4 }],
 		['a boolean background', { fill: true }],
 		['an array background', { fill: ['#fff'] }],
 		['a numeric text colour', { 'marker-color': 5, fill: '#fff' }],
-		['a 3-digit hex from geojson.io', { fill: '#fff' }]
-	])('inherits %s without throwing', (_name, properties) => {
+		['a 3-digit hex from geojson.io', { fill: '#fff' }],
+		[
+			'colours inherited from a Label',
+			{
+				'marker-symbol': LABEL_MARKER_SYMBOL,
+				'marker-color': '#ffffff',
+				fill: '#1976d2',
+				'marker-size': 'large'
+			}
+		]
+	])('inherits %s exactly as they are, without throwing', (_name, properties) => {
 		const style = styleForNewLabel({ annotations: [at('a', properties)] });
-
 		expect(style).toEqual({ ...properties, 'marker-symbol': LABEL_MARKER_SYMBOL });
-	});
-
-	test('inherited colours are left exactly as they are', () => {
-		// Only the untouched default moves, so a run of Labels styled once at its head stays styled.
-		expect(
-			styleForNewLabel({
-				annotations: [
-					at('a', {
-						'marker-symbol': LABEL_MARKER_SYMBOL,
-						'marker-color': '#ffffff',
-						fill: '#1976d2',
-						'marker-size': 'large'
-					})
-				]
-			})
-		).toEqual({
-			'marker-symbol': LABEL_MARKER_SYMBOL,
-			'marker-color': '#ffffff',
-			fill: '#1976d2',
-			'marker-size': 'large'
-		});
-	});
-
-	test('a Label’s properties are still conformant simplestyle', () => {
-		expect(simpleStyleViolations(styleForNewLabel({ annotations: [] }))).toEqual([]);
 	});
 });
 
 describe('where a popup points', () => {
-	const of = (geometry: unknown) => ({ id: 'a1', geometry, properties: {} }) as never;
-
-	test('a Point is its own coordinate', () => {
-		expect(annotationAnchor(of({ type: 'Point', coordinates: [4.9, 52.37] }))).toEqual({
-			lng: 4.9,
-			lat: 52.37
-		});
-	});
-
-	test('a line is the middle of it, not either end and not where a reader clicked', () => {
-		// The bug this rules out: a popup that follows the pointer along a coastline, so the same
-		// Annotation opened twice is in two places.
-		const anchor = annotationAnchor(
-			of({
-				type: 'LineString',
-				coordinates: [
-					[4, 52],
-					[6, 52],
-					[6, 54]
-				]
-			})
-		);
-
-		expect(anchor).toEqual({ lng: 5, lat: 53 });
-	});
-
-	test('a shape is the middle of its outer ring', () => {
-		const anchor = annotationAnchor(
-			of({
-				type: 'Polygon',
-				coordinates: [
-					[
-						[4, 52],
-						[6, 52],
-						[6, 54],
-						[4, 54],
-						[4, 52]
-					]
-				]
-			})
-		);
-
-		expect(anchor).toEqual({ lng: 5, lat: 53 });
-	});
-
-	test('a Circle is anchored at its semantic center', () => {
-		expect(annotationAnchor(of(circleGeometry([4.9, 52.37], 1_000)))).toEqual({
-			lng: 4.9,
-			lat: 52.37
-		});
+	test.each([
+		['a Point is its own coordinate', { type: 'Point', coordinates: [4.9, 52.37] }, [4.9, 52.37]],
+		[
+			'a line is the middle of it, not either end',
+			{ type: 'LineString', coordinates: pairs(4, 52, 6, 52, 6, 54) },
+			[5, 53]
+		],
+		[
+			'a shape is the middle of its outer ring',
+			{ type: 'Polygon', coordinates: [pairs(4, 52, 6, 52, 6, 54, 4, 54, 4, 52)] },
+			[5, 53]
+		],
+		['a Circle is its semantic center', circleGeometry([4.9, 52.37], 1_000), [4.9, 52.37]]
+	])('%s', (_name, geometry, [lng, lat]) => {
+		expect(annotationAnchor(withGeometry(geometry))).toEqual({ lng, lat });
 	});
 
 	test('a geometry this build cannot draw has none, so the caller falls back to the click', () => {
-		// Not an oversight: a `GeometryCollection` is carried whole and never interpreted, so the only
-		// true thing left about where it is, is where the reader touched it.
 		expect(
-			annotationAnchor(of({ type: 'foreign', declaredType: 'GeometryCollection', raw: {} }))
+			annotationAnchor(
+				withGeometry({ type: 'foreign', declaredType: 'GeometryCollection', raw: {} })
+			)
 		).toBeNull();
-		expect(annotationAnchor(of(null))).toBeNull();
+		expect(annotationAnchor(withGeometry(null))).toBeNull();
 	});
 });
 
 describe('solid, dashed, and dotted', () => {
 	test('solid is the absence of stroke-dasharray, not a tuple that looks continuous', () => {
 		expect(dashArrayFor('solid')).toBeUndefined();
-
-		const written = JSON.parse(
-			utf8(serialiseAnnotations(setLineStyle(collectionOf(pin('a1')), 'a1', 'solid')))
-		);
-
-		expect('stroke-dasharray' in written.features[0].properties).toBe(false);
+		const file = writtenJson(setLineStyle(collectionOf(pin('a1')), 'a1', 'solid'));
+		expect('stroke-dasharray' in file.features[0].properties).toBe(false);
 	});
 
 	test('dashed and dotted store tuples, never a keyword', () => {
 		const dashed = setLineStyle(collectionOf(pin('a1')), 'a1', 'dashed');
 		const dotted = setLineStyle(collectionOf(pin('a1')), 'a1', 'dotted');
-
 		expect(dashed.annotations[0]?.properties['stroke-dasharray']).toEqual([8, 4]);
 		expect(dotted.annotations[0]?.properties['stroke-dasharray']).toEqual([1, 3]);
-		expect(utf8(serialiseAnnotations(dashed))).toContain('"stroke-dasharray"');
+		expect(written(dashed)).toContain('"stroke-dasharray"');
 		for (const keyword of ['"dashed"', '"dotted"', '"solid"']) {
-			expect(utf8(serialiseAnnotations(dashed))).not.toContain(keyword);
-			expect(utf8(serialiseAnnotations(dotted))).not.toContain(keyword);
+			expect(written(dashed)).not.toContain(keyword);
+			expect(written(dotted)).not.toContain(keyword);
 		}
 	});
 
 	test('choosing solid after dashed removes the property rather than blanking it', () => {
 		const back = setLineStyle(setLineStyle(collectionOf(pin('a1')), 'a1', 'dashed'), 'a1', 'solid');
-
 		expect('stroke-dasharray' in back.annotations[0]!.properties).toBe(false);
 	});
 
-	test('a bare style takes the same rule, through the same function', () => {
-		// `withLineStyle` works on a `SimpleStyle` with no collection around it — which is what the
-		// Layers pane needed while a Layer had a default style, and what the style carried forward onto
-		// a newly drawn Annotation is. A second statement of "solid is the property being absent" is
-		// where a `[0, 0]` eventually gets written, so there is one.
-		const dashed = withLineStyle({ stroke: '#112233' }, 'dashed');
-		expect(dashed).toEqual({ stroke: '#112233', 'stroke-dasharray': [8, 4] });
-
-		const solid = withLineStyle(dashed, 'solid');
-		expect('stroke-dasharray' in solid).toBe(false);
-		// Everything else the style carried survives the change, rather than the call replacing it with
-		// a two-property object.
-		expect(solid).toEqual({ stroke: '#112233' });
-		// And an unchanged style is returned as it was, so nothing writes a file that says the same.
-		expect(withLineStyle(solid, 'solid')).toBe(solid);
+	test('choosing the line style an Annotation already has is the same collection', () => {
+		const solid = setStyle(collectionOf(pin('a1')), 'a1', { stroke: '#112233' });
+		expect(setLineStyle(solid, 'a1', 'solid')).toBe(solid);
 	});
 
-	test('the three options round-trip through the tuple', () => {
-		expect(lineStyleOf(dashArrayFor('solid'))).toBe('solid');
-		expect(lineStyleOf(dashArrayFor('dashed'))).toBe('dashed');
-		expect(lineStyleOf(dashArrayFor('dotted'))).toBe('dotted');
+	test.each(['solid', 'dashed', 'dotted'] as const)('%s round-trips through the tuple', (style) => {
+		expect(lineStyleOf(dashArrayFor(style))).toBe(style);
 	});
 
-	test('a tuple from another tool reads as dashed and is not rewritten', () => {
+	test('a tuple from another tool reads as dashed, and an empty one as solid', () => {
 		expect(lineStyleOf([4, 2])).toBe('dashed');
 		expect(lineStyleOf([])).toBe('solid');
-
-		const original = `${JSON.stringify(
-			{
-				type: 'FeatureCollection',
-				features: [
-					{
-						type: 'Feature',
-						id: 'a1',
-						properties: { 'stroke-dasharray': [4, 2, 1, 2] },
-						geometry: null
-					}
-				]
-			},
-			null,
-			'\t'
-		)}\n`;
-
-		expect(utf8(serialiseAnnotations(parseAnnotations(bytes(original))))).toBe(original);
 	});
 
 	test('dashes are converted into MapLibre’s line-width units', () => {
-		// A stored [8, 4] is 8px on and 4px off at simplestyle's own default width of 2, and MapLibre
-		// wants that as a multiple of the width. The two patterns stay distinguishable by their ratio,
-		// which is what makes a dotted line read as dots rather than as short dashes.
 		expect(mapLibreDashArray(DASHED_DASHARRAY)).toEqual([4, 2]);
 		expect(mapLibreDashArray(DOTTED_DASHARRAY)).toEqual([0.5, 1.5]);
 	});
@@ -878,7 +561,7 @@ describe('solid, dashed, and dotted', () => {
 
 describe('the controls write simplestyle property names exactly', () => {
 	test('every name the style controls write is one simplestyle defines', () => {
-		const styled = setStyle(collectionOf(pin('a1')), 'a1', {
+		const style = {
 			'marker-size': 'large',
 			'marker-symbol': 'harbor',
 			'marker-color': '#7e7e7e',
@@ -888,88 +571,46 @@ describe('the controls write simplestyle property names exactly', () => {
 			fill: '#223344',
 			'fill-opacity': 0.5,
 			'stroke-dasharray': DOTTED_DASHARRAY
-		});
+		};
 
-		const written = JSON.parse(utf8(serialiseAnnotations(styled)));
+		const { properties } = writtenJson(setStyle(collectionOf(pin('a1')), 'a1', style)).features[0];
 
-		expect(Object.keys(written.features[0].properties).sort()).toEqual(
-			[
-				'fill',
-				'fill-opacity',
-				'marker-color',
-				'marker-size',
-				'marker-symbol',
-				'stroke',
-				'stroke-dasharray',
-				'stroke-opacity',
-				'stroke-width'
-			].sort()
-		);
-		expect(simpleStyleViolations(written.features[0].properties)).toEqual([]);
-	});
-
-	test('no camelCase name reaches the file', () => {
-		// The failure this guards is a control written as `strokeWidth`, which would look right in the
-		// app and make the file unreadable to every other tool — the whole portability claim.
-		const styled = setStyle(collectionOf(pin('a1')), 'a1', {
-			'stroke-width': 3,
-			'fill-opacity': 0.5
-		});
-
-		const written = utf8(serialiseAnnotations(styled));
-
-		for (const wrong of ['strokeWidth', 'fillOpacity', 'markerColor', 'strokeDasharray']) {
-			expect(written).not.toContain(wrong);
-		}
+		expect(Object.keys(properties).sort()).toEqual(Object.keys(style).sort());
+		expect(simpleStyleViolations(properties)).toEqual([]);
 	});
 
 	test('setting a property to undefined removes it, which is "back to the Layer default"', () => {
 		const before = setStyle(collectionOf(pin('a1')), 'a1', { stroke: '#ff0000' });
-
 		const after = setStyle(before, 'a1', { stroke: undefined });
-
 		expect('stroke' in after.annotations[0]!.properties).toBe(false);
 	});
 
 	test('a title or description typed and then cleared leaves no empty string behind', () => {
 		const typed = setText(collectionOf(pin('a1')), 'a1', { title: 'x', description: 'y' });
-
 		const cleared = setText(typed, 'a1', { title: '', description: '' });
-
 		expect(cleared.annotations[0]?.properties).toEqual({});
-		expect(utf8(serialiseAnnotations(cleared))).not.toContain('"title"');
-	});
-
-	test('title and description persist through the file', () => {
-		const written = setText(collectionOf(pin('a1')), 'a1', {
-			title: 'Warehouses',
-			description: 'The *west* quay, per [the survey](https://example.org/s).'
-		});
-
-		const read = parseAnnotations(serialiseAnnotations(written));
-
-		expect(read.annotations[0]?.properties.title).toBe('Warehouses');
-		expect(read.annotations[0]?.properties.description).toContain('[the survey]');
+		expect(written(cleared)).not.toContain('"title"');
 	});
 });
 
 describe('simplestyle conformance, as a checkable claim', () => {
-	test('conforming properties report nothing', () => {
-		const conforming: AnnotationProperties = {
-			title: 'x',
-			description: 'y',
-			'marker-size': 'medium',
-			'marker-symbol': '7',
-			'marker-color': '#7e7e7e',
-			stroke: '#555555',
-			'stroke-opacity': 1,
-			'stroke-width': 2,
-			fill: '#555555',
-			'fill-opacity': 0.6,
-			'stroke-dasharray': [8, 4]
-		};
-
-		expect(simpleStyleViolations(conforming)).toEqual([]);
+	test('conforming properties report nothing, and the marker sizes are the spec’s three', () => {
+		expect(
+			simpleStyleViolations({
+				title: 'x',
+				description: 'y',
+				'marker-size': 'medium',
+				'marker-symbol': '7',
+				'marker-color': '#7e7e7e',
+				stroke: '#555555',
+				'stroke-opacity': 1,
+				'stroke-width': 2,
+				fill: '#555555',
+				'fill-opacity': 0.6,
+				'stroke-dasharray': [8, 4]
+			})
+		).toEqual([]);
+		expect(MARKER_SIZES).toEqual(['small', 'medium', 'large']);
 	});
 
 	test.each([
@@ -988,121 +629,64 @@ describe('simplestyle conformance, as a checkable claim', () => {
 		['stroke-dasharray with the wrong arity', { 'stroke-dasharray': [8] }, /\[dash, gap\] tuple/]
 	])('%s is reported', (_name, properties, expected) => {
 		const problems = simpleStyleViolations(properties as AnnotationProperties);
-
 		expect(problems).toHaveLength(1);
 		expect(problems[0]).toMatch(expected);
-	});
-
-	test('the three marker sizes are the spec’s three', () => {
-		expect(MARKER_SIZES).toEqual(['small', 'medium', 'large']);
 	});
 });
 
 describe('the render copy', () => {
-	test('resolves each Annotation’s style, so the renderer reads plain values', () => {
-		// Resolution reaches the render copy rather than the renderer, which is what lets the MapLibre
-		// layers read `['get', 'stroke']` and lets the editor and the published viewer agree.
-		const collection = setStyle(collectionOf(pin('a1'), pin('a2')), 'a2', { stroke: '#ff0000' });
-
-		const render = toRenderCollection(collection);
-
-		expect(render.features[0]?.['properties']).toMatchObject({
-			stroke: SIMPLESTYLE_DEFAULTS.stroke,
-			'stroke-width': SIMPLESTYLE_DEFAULTS['stroke-width']
-		});
-		expect(render.features[1]?.['properties']).toMatchObject({
-			stroke: '#ff0000',
-			'stroke-width': SIMPLESTYLE_DEFAULTS['stroke-width']
-		});
-	});
-
-	test('buckets each Annotation by line style, because line-dasharray is not data-driven', () => {
-		const collection = setLineStyle(
-			setLineStyle(collectionOf(pin('a1'), pin('a2'), pin('a3')), 'a2', 'dashed'),
-			'a3',
-			'dotted'
+	test('resolves each style, buckets by line style, and carries the id and the unrendered description', () => {
+		const collection = setText(
+			setLineStyle(
+				setLineStyle(
+					setStyle(collectionOf(pin('a1'), pin('a2'), pin('a3')), 'a2', { stroke: '#ff0000' }),
+					'a2',
+					'dashed'
+				),
+				'a3',
+				'dotted'
+			),
+			'a1',
+			{ title: 'x', description: '*not HTML yet*' }
 		);
+		const [first, second, third] = renderProperties(collection);
+		const width = SIMPLESTYLE_DEFAULTS['stroke-width'];
 
-		const render = toRenderCollection(collection);
-
-		expect(
-			render.features.map(
-				(feature) => (feature['properties'] as Record<string, unknown>)[LINE_STYLE_PROPERTY]
-			)
-		) //
-			.toEqual(['solid', 'dashed', 'dotted']);
-	});
-
-	test('carries the Annotation id, so a click on the map can be traced back', () => {
-		const render = toRenderCollection(collectionOf(pin('a1')));
-
-		expect((render.features[0]?.['properties'] as Record<string, unknown>)[ANNOTATION_ID_PROPERTY]) //
-			.toBe('a1');
-	});
-
-	test('carries title and description unrendered, because rendering happens at the popup', () => {
-		const collection = setText(collectionOf(pin('a1')), 'a1', {
-			title: 'x',
-			description: '*not HTML yet*'
+		expect(first).toMatchObject({
+			stroke: SIMPLESTYLE_DEFAULTS.stroke,
+			'stroke-width': width,
+			[ANNOTATION_ID_PROPERTY]: 'a1',
+			description: '*not HTML yet*',
+			[LINE_STYLE_PROPERTY]: 'solid'
 		});
-
-		const properties = toRenderCollection(collection).features[0]?.['properties'] as Record<
-			string,
-			unknown
-		>;
-
-		expect(properties['description']).toBe('*not HTML yet*');
-		expect(properties['description']).not.toContain('<em>');
+		expect(second).toMatchObject({
+			stroke: '#ff0000',
+			'stroke-width': width,
+			[LINE_STYLE_PROPERTY]: 'dashed'
+		});
+		expect(third).toMatchObject({ [LINE_STYLE_PROPERTY]: 'dotted' });
+		expect(written(collection)).not.toContain('ballastella:');
 	});
 
 	test('a geometry this build cannot draw is absent from the render copy but still in the document', () => {
 		const collection = parseAnnotations(
-			bytes(
-				JSON.stringify({
-					type: 'FeatureCollection',
-					features: [
-						{
-							type: 'Feature',
-							id: 'a1',
-							properties: {},
-							geometry: { type: 'MultiPoint', coordinates: [] }
-						},
-						{ type: 'Feature', id: 'a2', properties: {}, geometry: null }
-					]
-				})
-			)
+			featuresFile(feature('a1', {}, { type: 'MultiPoint', coordinates: [] }), feature('a2'))
 		);
 
 		expect(toRenderCollection(collection).features).toEqual([]);
 		expect(collection.annotations).toHaveLength(2);
 	});
-
-	test('the render copy’s private property names never reach a written file', () => {
-		const written = utf8(serialiseAnnotations(collectionOf(pin('a1'))));
-
-		expect(written).not.toContain(LINE_STYLE_PROPERTY);
-		expect(written).not.toContain(ANNOTATION_ID_PROPERTY);
-		expect(written).not.toContain('ballastella:');
-	});
 });
 
 describe('the nine colours an Annotation can be', () => {
-	// A palette is a vocabulary, so what is worth asserting is the properties a later edit could quietly
-	// break — not the nine values, which are the definition and would only be restated here.
-
-	test('there are nine, and black, grey and white are among them', () => {
+	test('nine distinct, uniquely named lowercase #rrggbb values, black, grey and white among them', () => {
+		const values = ANNOTATION_COLORS.map((colour) => colour.value);
+		const names = ANNOTATION_COLORS.map((colour) => colour.name);
 		expect(ANNOTATION_COLORS).toHaveLength(9);
-		expect(ANNOTATION_COLORS.map((colour) => colour.name)).toEqual(
-			expect.arrayContaining(['Black', 'Grey', 'White'])
-		);
-	});
-
-	test('every colour is a #rrggbb value simplestyle accepts, and lowercase', () => {
-		// Lowercase matters: half this palette's job is being comparable to a value already in a file, and
-		// `#FFFFFF` and `#ffffff` are the same colour spelled two ways. The format claim goes through the
-		// app's own validator rather than a second regex, so the palette cannot drift from what ADR-0009
-		// will accept in a document.
-		for (const { value } of ANNOTATION_COLORS) {
+		expect(names).toEqual(expect.arrayContaining(['Black', 'Grey', 'White']));
+		expect(new Set(values).size).toBe(values.length);
+		expect(new Set(names).size).toBe(names.length);
+		for (const value of values) {
 			expect(value).toBe(value.toLowerCase());
 			expect(simpleStyleViolations({ stroke: value, fill: value, 'marker-color': value })).toEqual(
 				[]
@@ -1110,138 +694,65 @@ describe('the nine colours an Annotation can be', () => {
 		}
 	});
 
-	test('no two swatches are the same colour, and no two share a name', () => {
-		const values = ANNOTATION_COLORS.map((colour) => colour.value);
-		const names = ANNOTATION_COLORS.map((colour) => colour.name);
-		expect(new Set(values).size).toBe(values.length);
-		expect(new Set(names).size).toBe(names.length);
-	});
-
 	test('the grey a new Annotation starts on is in the palette, and is simplestyle’s own', () => {
-		// The coincidence that makes a freshly drawn shape land on a swatch instead of reporting a colour
-		// nobody was offered. If a future edit moves the palette's grey, this is what notices.
 		expect(annotationColorName(DEFAULT_ANNOTATION_COLOR)).toBe('Grey');
 		expect(DEFAULT_ANNOTATION_COLOR).toBe(SIMPLESTYLE_DEFAULTS.stroke);
 		expect(DEFAULT_ANNOTATION_COLOR).toBe(SIMPLESTYLE_DEFAULTS.fill);
 	});
 
 	test('a colour is named case-insensitively, and one from outside the palette is not named at all', () => {
-		// `null` is the answer the editor draws its "not one of the nine" swatch from, so it has to be a
-		// real answer rather than a fallback to the nearest colour.
 		expect(annotationColorName('#D32F2F')).toBe('Red');
 		expect(annotationColorName('#d32f2f')).toBe('Red');
 		expect(annotationColorName('#aa3311')).toBeNull();
-		// simplestyle's pin default is the grey that is *not* the palette's, which is the whole reason a
-		// new Annotation writes its colours explicitly.
 		expect(annotationColorName(SIMPLESTYLE_DEFAULTS['marker-color'])).toBeNull();
 	});
 });
 
 describe('a Point whose marker-symbol is label', () => {
-	/** A Point carrying whatever `marker-symbol` this case is about, and nothing else. */
 	const withSymbol = (symbol?: string): Annotation =>
-		({
-			id: 'a1',
-			geometry: { type: 'Point', coordinates: [4.9, 52.37] },
-			properties: symbol === undefined ? {} : { 'marker-symbol': symbol }
-		}) as Annotation;
+		pointWith(symbol === undefined ? {} : { 'marker-symbol': symbol });
 
-	test('is a label, and nothing else is', () => {
+	test('is a label, and nothing else is, whether read from an Annotation or a bare properties bag', () => {
 		expect(isLabel(withSymbol(LABEL_MARKER_SYMBOL))).toBe(true);
-		// A Point with no symbol is a Pin, and a Point carrying somebody else's symbol stays a Pin and
-		// keeps it — this app never destroys a value it does not understand.
 		expect(isLabel(withSymbol())).toBe(false);
 		expect(isLabel(withSymbol('harbor'))).toBe(false);
 		expect(isLabel(withSymbol('Label'))).toBe(false);
-	});
-
-	test('reads the same discriminator from a bare properties bag, for a caller holding a feature', () => {
-		// What the renderer uses on a render copy, so `whatItContains` compares no literal of its own and
-		// `LABEL_MARKER_SYMBOL` ties every reading together.
 		expect(isLabelFeature({ 'marker-symbol': LABEL_MARKER_SYMBOL })).toBe(true);
 		expect(isLabelFeature({ 'marker-symbol': 'harbor' })).toBe(false);
 		expect(isLabelFeature({})).toBe(false);
 		expect(isLabelFeature(undefined)).toBe(false);
 	});
 
-	test('is a label only as a Point: a line, a shape, a foreign geometry and a null one are not', () => {
-		const labelled = { 'marker-symbol': LABEL_MARKER_SYMBOL };
-		const of = (geometry: unknown): Annotation =>
-			({ id: 'a1', geometry, properties: labelled }) as Annotation;
-
-		expect(
-			isLabel(
-				of({
-					type: 'LineString',
-					coordinates: [
-						[4.8, 52.3],
-						[5, 52.4]
-					]
-				})
-			)
-		).toBe(false);
-		expect(isLabel(of({ type: 'Polygon', coordinates: [[]] }))).toBe(false);
-		expect(isLabel(of({ type: 'foreign', raw: {} }))).toBe(false);
-		expect(isLabel(of(null))).toBe(false);
+	test.each([
+		{ type: 'LineString', coordinates: pairs(4.8, 52.3, 5, 52.4) },
+		{ type: 'Polygon', coordinates: [[]] },
+		{ type: 'foreign', raw: {} },
+		null
+	])('is a label only as a Point, not as %j', (geometry) => {
+		expect(isLabel(withGeometry(geometry, { 'marker-symbol': LABEL_MARKER_SYMBOL }))).toBe(false);
 	});
 
 	test('adds no extension to the file: a Label serialises with only simplestyle properties', () => {
-		// The discriminator was chosen to make this checkable rather than argued in a document: a Label
-		// is a Point whose `marker-symbol` is `label`.
-		const written = JSON.parse(
-			utf8(
-				serialiseAnnotations(
-					collectionOf(
-						newAnnotation({
-							id: 'a1',
-							geometry: { type: 'Point', coordinates: [4.9, 52.37] },
-							title: 'Zuiderzee',
-							style: {
-								'marker-symbol': LABEL_MARKER_SYMBOL,
-								'marker-size': 'large',
-								'marker-color': '#ffffff',
-								fill: '#1976d2',
-								'fill-opacity': 0.8
-							}
-						})
-					)
-				)
-			)
-		);
-		const properties = written.features[0].properties as AnnotationProperties;
-		// ADR-0009 permits `stroke-dasharray`, but simplestyle 1.1.0 does not define it.
-		const simplestyleNames = SIMPLESTYLE_PROPERTIES.filter((name) => name !== 'stroke-dasharray');
+		const properties = writtenJson(collectionOf(zuiderzee)).features[0]
+			.properties as AnnotationProperties;
+		// simplestyle 1.1.0's names; ADR-0009's `stroke-dasharray` is not among them.
+		const simplestyleNames = [
+			...['title', 'description', 'marker-size', 'marker-symbol', 'marker-color', 'stroke'],
+			...['stroke-opacity', 'stroke-width', 'fill', 'fill-opacity']
+		];
 
 		expect(simpleStyleViolations(properties)).toEqual([]);
 		expect(Object.keys(properties).filter((name) => !simplestyleNames.includes(name))).toEqual([]);
 	});
 
-	test('reaches the render copy with its symbol, because the layer filter reads it', () => {
-		// The renderer's own filter is the one place outside `isLabel` that compares this property to a
-		// literal, and a filter cannot call a function. If the symbol were resolved away here, a Label
-		// would draw as a pin and nothing at this seam would say why.
-		const collection: AnnotationCollection = {
-			annotations: [withSymbol(LABEL_MARKER_SYMBOL), withSymbol()]
-		};
-
-		const render = toRenderCollection(collection);
-
-		expect(render.features[0]?.['properties']).toMatchObject({
-			'marker-symbol': LABEL_MARKER_SYMBOL
+	test('reaches the render copy with its symbol, and a foreign symbol stays for the Pin filter', () => {
+		const [label, pinned, harbor] = renderProperties({
+			annotations: [withSymbol(LABEL_MARKER_SYMBOL), withSymbol(), withSymbol('harbor')]
 		});
-		expect(render.features[1]?.['properties']).not.toHaveProperty('marker-symbol');
-	});
 
-	test('keeps a foreign marker-symbol on the render copy for the Pin filter', () => {
-		const render = toRenderCollection({ annotations: [withSymbol('harbor')] });
-		const properties = render.features[0]?.['properties'] as AnnotationProperties;
-
-		expect({
-			markerSymbol: properties['marker-symbol'],
-			isLabel: isLabelFeature(properties)
-		}).toEqual({
-			markerSymbol: 'harbor',
-			isLabel: false
-		});
+		expect(label).toMatchObject({ 'marker-symbol': LABEL_MARKER_SYMBOL });
+		expect(pinned).not.toHaveProperty('marker-symbol');
+		expect(harbor?.['marker-symbol']).toBe('harbor');
+		expect(isLabelFeature(harbor)).toBe(false);
 	});
 });

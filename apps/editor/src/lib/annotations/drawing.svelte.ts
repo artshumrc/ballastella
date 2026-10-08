@@ -1,31 +1,13 @@
-// The drawing gesture in progress: which tool is active, and the vertices placed so far.
-//
-// No `terra-draw`: every vertex stays a focusable button with arrow-key movement, each gesture
-// costs exactly one store write on gesture end, and Control Points, Mask and Annotation vertices
-// share the one editing mechanism.
-
 import {
+	count,
 	circleGeometry,
 	circleRadiusMeters,
 	type AnnotationGeometry,
 	type GeoPoint
 } from '@ballastella/core';
 
-/**
- * Which tool the toolbar has active.
- *
- * `'select'` is a tool rather than the absence of one, so that "I am not drawing" is a state the
- * toolbar can show as pressed and the status line can name. A null tool would make the same
- * information a double negative.
- *
- * `'text'` is the Label, and it is the one member whose name in code is not the word a person meets:
- * the other tools are geometry words and the shared glyph table is keyed by them, so the Label joined
- * them as what it draws. Everywhere a scholar reads it — the button, the status line, every
- * announcement — it is **Label**, which is {@link TOOL_NAMES}' job.
- */
 export type AnnotationTool = 'select' | 'point' | 'line' | 'polygon' | 'circle' | 'text';
 
-/** How many vertices each tool needs before its shape is finishable. */
 const MINIMUM_VERTICES: Record<AnnotationTool, number> = {
 	select: 0,
 	point: 1,
@@ -35,7 +17,6 @@ const MINIMUM_VERTICES: Record<AnnotationTool, number> = {
 	text: 1
 };
 
-/** What each tool is called, for the status line and the announcements. */
 const TOOL_NAMES: Record<AnnotationTool, string> = {
 	select: 'Select',
 	point: 'Pin',
@@ -47,260 +28,107 @@ const TOOL_NAMES: Record<AnnotationTool, string> = {
 
 export const toolName = (tool: AnnotationTool): string => TOOL_NAMES[tool];
 
-/**
- * The gesture in progress.
- *
- * Holds **no store and no session**: it is the geometry a user is in the middle of describing, and
- * nothing here can write. The page turns a finished shape into an Annotation and commits it, which
- * keeps `EditorSession` the only writer (a rule this application has broken before) and keeps this
- * testable as ordinary state.
- */
 export class AnnotationDrawing {
 	tool = $state<AnnotationTool>('select');
-
-	/**
-	 * Whether the shapes are on offer: "New Annotation" has been pressed and the gesture it
-	 * began is not over yet.
-	 *
-	 * **Here rather than in the toolbar, because a gesture can end anywhere.** A pin lands with one
-	 * click on the canvas, a line is finished by a double-click on it or by Shift and Enter, and
-	 * Escape abandons whatever is part-drawn — none of which the toolbar can see. The shapes have to
-	 * go away with the gesture, and {@link #rest} is the one place that says a gesture is over.
-	 */
 	picking = $state(false);
-
-	/**
-	 * The shape the last completed gesture drew, or `null` when there is nothing to announce.
-	 *
-	 * Held so that finishing has something to say. The tool disarms itself the moment a shape is
-	 * finished, and a status region that simply fell silent would leave a screen-reader user holding
-	 * a tool that is no longer in their hand — the change is theirs to be told about.
-	 *
-	 * **Writable from outside, because the sentence it produces makes a claim this class cannot
-	 * check**: it says the shape is *selected so it can be titled*, which stops being true when the
-	 * selection moves off it or it is deleted. The selection's single writer clears this, and
-	 * re-states it across the one selection that a finished gesture itself makes.
-	 */
 	added = $state<AnnotationTool | null>(null);
-
-	/**
-	 * The vertices placed so far, in the order they were placed. Empty whenever nothing is in flight.
-	 *
-	 * `$state.raw`, because a placement replaces the whole array rather than pushing into it — the
-	 * same reason the Layer stack's documents are raw.
-	 */
 	vertices = $state.raw<readonly GeoPoint[]>([]);
 
-	/** Whether a shape is part-drawn, so that leaving the page or switching Layer can warn or discard. */
 	get drawing(): boolean {
 		return this.vertices.length > 0;
 	}
 
-	/** Whether what has been placed is enough to finish. */
 	get canFinish(): boolean {
 		return this.vertices.length >= MINIMUM_VERTICES[this.tool] && this.tool !== 'select';
 	}
 
-	/** "New Annotation": put the shapes on offer, without choosing one. */
 	offerShapes(): void {
 		this.picking = true;
 		this.added = null;
 	}
 
-	/**
-	 * Choose a tool. **Abandons anything part-drawn**, which is the honest reading of picking up a
-	 * different tool — and it discards rather than committing, because a half-drawn shape the user
-	 * walked away from is not something they asked to keep (the same rule as ADR-0022's pending half).
-	 *
-	 * Choosing a shape leaves it on offer; choosing `select` is the way back out, and puts the
-	 * shapes away with it.
-	 */
 	choose(tool: AnnotationTool): void {
 		this.tool = tool;
 		this.vertices = [];
 		this.picking = tool !== 'select';
 	}
 
-	/**
-	 * Place a vertex, and say whether that completed a shape.
-	 *
-	 * A pin completes on its first vertex, because one click is the whole gesture — and so does a Label,
-	 * whose gesture is the pin's exactly. A circle completes on its second: the center, then a point
-	 * on its edge. A line and a shape accumulate until {@link finish}, so that
-	 * "click, click, click" describes one route rather than three one-vertex ones.
-	 *
-	 * A one-vertex tool is read off {@link MINIMUM_VERTICES} rather than listed again here, so the two
-	 * cannot come to disagree about which tools those are.
-	 *
-	 * @returns the finished geometry when this placement completed the shape, otherwise `null`
-	 */
 	place(point: GeoPoint): AnnotationGeometry | null {
 		if (this.tool === 'select') return null;
 		this.vertices = [...this.vertices, point];
 		if (this.tool === 'circle' && this.vertices.length === 2) {
-			const geometry = this.geometry();
-			// A second click on the center is not a radius: stay armed for a real edge.
+			const geometry = this.#geometry();
 			if (geometry?.type === 'Circle' && geometry.radiusMeters <= 0) {
 				this.vertices = this.vertices.slice(0, 1);
 				return null;
 			}
-			this.added = this.tool;
-			this.#rest();
-			return geometry;
+			return this.#complete();
 		}
-		if (MINIMUM_VERTICES[this.tool] > 1) return null;
-		const geometry = this.geometry();
-		this.added = this.tool;
-		this.#rest();
-		return geometry;
+		return MINIMUM_VERTICES[this.tool] > 1 ? null : this.#complete();
 	}
 
-	/**
-	 * End the gesture and hand back what was drawn, or `null` when there is not enough of it.
-	 *
-	 * The one commit point for a line or a shape — ADR-0017 rule 1's "the gesture is over" — so a
-	 * shape with nine vertices costs one store write and not nine.
-	 */
 	finish(): AnnotationGeometry | null {
-		if (!this.canFinish) return null;
-		const geometry = this.geometry();
-		this.added = this.tool;
-		this.#rest();
-		return geometry;
+		return this.canFinish ? this.#complete() : null;
 	}
 
-	/**
-	 * Abandon the gesture in hand — Escape, or the cancel button beside the status line.
-	 *
-	 * ⚠ **An armed tool that has drawn nothing counts as a gesture in hand, for every drawing tool.** For a
-	 * one-click tool "mid-gesture" *is* "armed and not yet placed": there is no intermediate state, so a
-	 * `cancel()` that only abandoned part-drawn shapes left the Label tool armed, the status line still
-	 * saying what to do with it, and the next map click placing a Label the scholar had just abandoned.
-	 * The armed-nothing-drawn state is common to all of them, so this is one rule rather than a Label
-	 * special case — every tool is put down by an Escape before its first click.
-	 *
-	 * "New Annotation pressed, no tool chosen yet" is deliberately *not* in hand: nothing is armed, so
-	 * there is nothing to put down, and {@link returnToRest} is what closes the offer.
-	 *
-	 * @returns whether there was anything to abandon, which is what the Escape handler spends to decide
-	 * whether to consume the key — an Escape that put a tool down must not also clear the selection.
-	 */
 	cancel(): boolean {
 		if (!this.drawing && this.tool === 'select') return false;
-		this.added = null;
-		this.#rest();
+		this.returnToRest();
 		return true;
 	}
 
-	/**
-	 * Put everything down whatever state it is in: nothing part-drawn, no tool armed, no shapes on
-	 * offer, nothing left to announce.
-	 *
-	 * **For a change of surface rather than the end of a gesture** — the Layer being opened, closed or
-	 * swapped — where the shapes must not follow into a Layer nobody offered them in. {@link cancel}
-	 * cannot serve: its boolean means "a gesture in hand was abandoned", and no tool is in hand when the
-	 * shapes are merely on offer with none of them chosen. That state is exactly what this ends.
-	 */
 	returnToRest(): void {
 		this.added = null;
 		this.#rest();
 	}
 
-	/**
-	 * Back to rest: nothing part-drawn, no tool armed, no shapes on offer.
-	 *
-	 * **One press of "New Annotation" makes one Annotation**, so every way a gesture can end comes
-	 * through here — a pin completed by its only click, a line or a shape finished, and a gesture
-	 * abandoned, which is over too. The rule belongs to the state machine rather than to a page
-	 * handler so that there is exactly one place that says a gesture is over.
-	 *
-	 * A tool never stays in hand between shapes: the price is a press of "New Annotation" per shape,
-	 * and it is accepted. If a drawing run proves painful the repair is a visible "Draw another"
-	 * control on the Annotation just finished, never a tool that stays armed silently.
-	 */
+	#complete(): AnnotationGeometry {
+		const geometry = this.#geometry();
+		this.added = this.tool;
+		this.#rest();
+		return geometry;
+	}
+
 	#rest(): void {
 		this.vertices = [];
 		this.tool = 'select';
 		this.picking = false;
 	}
 
-	/** Take back the last vertex placed, so a misplaced click is not the end of the shape. */
 	undoVertex(): boolean {
 		if (!this.drawing) return false;
 		this.vertices = this.vertices.slice(0, -1);
 		return true;
 	}
 
-	private circleGeometry(edge: GeoPoint): AnnotationGeometry {
-		const center = this.vertices[0] ?? edge;
-		const centerPosition: [number, number] = [center.lng, center.lat];
-		const edgePosition: [number, number] = [edge.lng, edge.lat];
-		return circleGeometry(centerPosition, circleRadiusMeters(centerPosition, edgePosition));
-	}
-
-	/** What has been placed, as a geometry. Only correct when {@link canFinish}. */
-	private geometry(): AnnotationGeometry {
+	#geometry(): AnnotationGeometry {
 		const positions = this.vertices.map((vertex): [number, number] => [vertex.lng, vertex.lat]);
+		const first = positions[0] ?? [0, 0];
 		switch (this.tool) {
-			// A Label is a Point like a Pin; what differs is the `marker-symbol` the creation path writes,
-			// which is not this class's business — nothing here can write.
 			case 'point':
 			case 'text':
-				return { type: 'Point', coordinates: positions[0] ?? [0, 0] };
+				return { type: 'Point', coordinates: first };
 			case 'line':
 				return { type: 'LineString', coordinates: positions };
 			case 'polygon':
-				// **Closed here, and this is the whole of RFC 7946 §3.1.6**: a Polygon's ring is a
-				// LinearRing, whose first and last positions must be identical. A ring left open is the
-				// single most common way a hand-built GeoJSON file is rejected by other tools, which would
-				// break exactly the portability claim ADR-0009 is for — geojson.io draws it, PostGIS and
-				// shapely refuse it. The user never places the closing vertex, so nothing else can.
-				return { type: 'Polygon', coordinates: [[...positions, positions[0] ?? [0, 0]]] };
+				return { type: 'Polygon', coordinates: [[...positions, first]] };
 			case 'circle':
-				return this.circleGeometry(this.vertices[1] ?? this.vertices[0] ?? { lng: 0, lat: 0 });
+				return circleGeometry(first, circleRadiusMeters(first, positions[1] ?? first));
 			case 'select':
 				return null;
 		}
 	}
 
-	/**
-	 * The gesture in words, for the announced status region.
-	 *
-	 * Said rather than only drawn, because the whole gesture is otherwise invisible to a screen-reader
-	 * user: there is no rubber band to see, and "how many vertices have I placed" is the one thing
-	 * they cannot get from the canvas.
-	 */
 	get status(): string {
 		const placed = this.vertices.length;
-		// **Nothing at all while selecting.** Clicking a shape to open it is what the map already does;
-		// a sentence saying so was boilerplate sitting under the tools on every screen that was not
-		// mid-gesture. The region stays in the DOM and empty, which is also what keeps it announceable:
-		// `aria-live` announces a *change of text in a region that is already there*, so the next real
-		// status is heard. There is nothing to announce about not drawing.
-		//
-		// **Except straight after a shape was drawn**, when the tool put itself down: what happened and
-		// what to do next are both changes the scholar did not make and is owed.
-		if (this.tool === 'select') {
-			if (this.added === null) return '';
-			return `${toolName(this.added)} added.`;
-		}
-		// A one-vertex tool says "place" rather than "start", because there is nothing to continue. Read
-		// off {@link MINIMUM_VERTICES} for the same reason {@link place} reads it: the Pin and the Label
-		// share this sentence because they share a gesture, and a future one-vertex tool must not be able
-		// to announce a count of points it will never accumulate.
-		if (MINIMUM_VERTICES[this.tool] === 1) {
-			return 'Click the map to place.';
-		}
+		if (this.tool === 'select') return this.added === null ? '' : `${toolName(this.added)} added.`;
+		if (MINIMUM_VERTICES[this.tool] === 1) return 'Click the map to place.';
 		if (this.tool === 'circle' && placed === 1) {
 			return 'Center placed. Click the map to set the radius.';
 		}
+		if (placed === 0) return 'Click the map to start.';
 		const need = MINIMUM_VERTICES[this.tool] - placed;
-		if (placed === 0) {
-			return 'Click the map to start.';
-		}
-		if (need > 0) {
-			return `${placed} ${placed === 1 ? 'point' : 'points'}. ${need} more needed.`;
-		}
+		if (need > 0) return `${count(placed, 'point')}. ${need} more needed.`;
 		return `${placed} points. Done to finish.`;
 	}
 }

@@ -56,7 +56,8 @@ no `build`.
 (`@ballastella/ui/layout.css`, imported by each app's own `routes/layout.css`) and its tests — a
 shared component tested from the app it used to live in is tested through a consumer. `svelte` is a
 **peer** dependency there: the framework belongs to the app doing the compiling. `theme.svelte.ts`
-deliberately stays two modules, and the viewer's own header argues why.
+stays one per app — the editor remembers the choice and follows the system, the viewer reads the
+system once — and what they share lives in `@ballastella/ui`.
 
 ## Commands
 
@@ -90,7 +91,7 @@ a borrowed host is named, clear once it is repointed — and prints which of the
 `pnpm check:deployment` itself before a production deployment.
 
 Three checks read **built output** rather than source, so they live in `.github/workflows/` instead
-of in `pnpm lint`, which does not build: the ADR-0045 scan for absolute asset paths,
+of in `pnpm lint`, which does not build: `scripts/check-relative-assets.mjs` (ADR-0045),
 `scripts/check-nojekyll.mjs`, and `scripts/check-deploy-artifact.mjs`. Run them by hand after a
 build if you have touched either app's `static/`, its adapter, the viewer file set, or the routes.
 

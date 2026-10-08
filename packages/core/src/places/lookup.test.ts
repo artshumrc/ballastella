@@ -10,16 +10,11 @@ import {
 import type { LookupOutcome, PlaceService } from './place';
 import { PLACE_SERVICE } from './service';
 
-/**
- * A service that is not this deployment's, so every test below drives the shape rather than the
- * host — the same property `resolve.test.ts` gets from driving fixture catalogs.
- */
 const SERVICE: PlaceService = {
 	searchUrl: (query) => `https://places.example.test/search?q=${encodeURIComponent(query)}`,
 	attribution: { text: '© Somebody', href: null }
 };
 
-/** One result in the shape the service sends: coordinates as strings, `[s, n, w, e]` for the box. */
 const result = (fields: Record<string, unknown> = {}) => ({
 	display_name: 'Springfield, Sangamon County, Illinois, United States',
 	lat: '39.7990175',
@@ -28,7 +23,6 @@ const result = (fields: Record<string, unknown> = {}) => ({
 	...fields
 });
 
-/** A service that answers with `payload`, and a record of what it was asked. */
 function answering(payload: unknown, status = 200): { fetch: FetchFn; urls: string[] } {
 	const urls: string[] = [];
 	const fetch: FetchFn = async (input) => {
@@ -41,13 +35,6 @@ function answering(payload: unknown, status = 200): { fetch: FetchFn; urls: stri
 	return { fetch, urls };
 }
 
-/**
- * One lookup against the fixture service, with a limiter of its own.
- *
- * **Its own, deliberately.** The limiter this application actually uses is one per tab, so tests
- * sharing it would pace each other — the second test in the file would be refused for the sin of
- * following the first. The default is exercised by the one test below that means to.
- */
 const ask = (query: string, options: LookUpPlacesOptions = {}): Promise<LookupOutcome> =>
 	lookUpPlaces(query, { service: SERVICE, limiter: createLookupRateLimiter(), ...options });
 
@@ -63,8 +50,6 @@ describe('lookUpPlaces', () => {
 				{
 					name: 'Springfield, Sangamon County, Illinois, United States',
 					point: { lng: -89.6439575, lat: 39.7990175 },
-					// `[south, north, west, east]` as sent, in `GeoBounds`' own order. Getting this pair
-					// the wrong way round frames the map on the Indian Ocean and throws nothing.
 					bounds: { west: -89.773182, south: 39.653656, east: -89.56851, north: 39.87417 }
 				}
 			]
@@ -73,8 +58,6 @@ describe('lookUpPlaces', () => {
 	});
 
 	it('carries a box that crosses the antimeridian with its east above 180', async () => {
-		// `GeoBounds` says a box crossing ±180 is written with `east` above 180, because a box whose
-		// east is numerically west of its west is not a box — and it is what `fitBounds` reads.
 		const { fetch } = answering([result({ boundingbox: ['-18', '-16', '177', '-179'] })]);
 
 		const outcome = await ask('Taveuni', { fetch });
@@ -95,50 +78,39 @@ describe('lookUpPlaces', () => {
 		});
 	});
 
-	it('reports a status that is not a success as unanswered', async () => {
-		const { fetch } = answering([result()], 503);
-
-		await expect(ask('Springfield', { fetch })).resolves.toEqual({
-			kind: 'unanswered'
-		});
-	});
-
-	it('reports a fetch that rejects as unanswered rather than throwing', async () => {
-		const fetch: FetchFn = () => Promise.reject(new TypeError('Failed to fetch'));
-
-		await expect(ask('Springfield', { fetch })).resolves.toEqual({
-			kind: 'unanswered'
-		});
-	});
-
-	it('reports a body that is not JSON as unanswered', async () => {
-		const fetch: FetchFn = async () => new Response('<html>a login page</html>', { status: 200 });
-
-		await expect(ask('Springfield', { fetch })).resolves.toEqual({
-			kind: 'unanswered'
-		});
-	});
-
-	it('reports a payload that is not a list of results as unanswered', async () => {
-		// A fork pointed at something that is not a geocoder. It is the instance operator's problem,
-		// and a sentence about response schemas would reach the wrong person (ADR-0029).
-		const { fetch } = answering({ error: 'unknown parameter' });
-
-		await expect(ask('Springfield', { fetch })).resolves.toEqual({
-			kind: 'unanswered'
-		});
-	});
-
-	it('reports results that cannot be read at all as unanswered, not as none', async () => {
-		const { fetch } = answering([{ display_name: 'Somewhere' }, { lat: '1', lon: '2' }]);
-
-		await expect(ask('Springfield', { fetch })).resolves.toEqual({
+	it.each<[string, () => FetchFn, { timeoutMs?: number }?]>([
+		['a status that is not a success', () => answering([result()], 503).fetch],
+		[
+			'a fetch that rejects, rather than throwing',
+			() => () => Promise.reject(new TypeError('Failed to fetch'))
+		],
+		[
+			'a body that is not JSON',
+			() => async () => new Response('<html>a login page</html>', { status: 200 })
+		],
+		[
+			'a payload that is not a list of results',
+			() => answering({ error: 'unknown parameter' }).fetch
+		],
+		[
+			'results that cannot be read at all, not as none',
+			() => answering([{ display_name: 'Somewhere' }, { lat: '1', lon: '2' }]).fetch
+		],
+		[
+			'a request that never answers, rather than waiting for the socket',
+			() => (_input, init) =>
+				new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+				}),
+			{ timeoutMs: 1 }
+		]
+	])('reports %s as unanswered', async (_, fetch, options = {}) => {
+		await expect(ask('Springfield', { fetch: fetch(), ...options })).resolves.toEqual({
 			kind: 'unanswered'
 		});
 	});
 
 	it('drops one unreadable result and keeps the rest', async () => {
-		// A candidate with no box cannot be framed on; it is not evidence about the other one.
 		const { fetch } = answering([result({ boundingbox: undefined }), result({ lat: '1' })]);
 
 		const outcome = await ask('Springfield', { fetch });
@@ -147,36 +119,10 @@ describe('lookUpPlaces', () => {
 			1
 		]);
 	});
-
-	it('gives up on a request that never answers, rather than waiting for the socket', async () => {
-		// Without the timeout a hung request leaves the field looking things up for as long as the
-		// connection stays open, and a scholar is watching it.
-		const fetch: FetchFn = (_input, init) =>
-			new Promise((_resolve, reject) => {
-				init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
-			});
-
-		await expect(ask('Springfield', { fetch, timeoutMs: 1 })).resolves.toEqual({
-			kind: 'unanswered'
-		});
-	});
-
-	it('asks nothing at all for a blank query', async () => {
-		const { fetch, urls } = answering([result()]);
-
-		await expect(ask('   ', { fetch })).resolves.toEqual({
-			kind: 'none'
-		});
-		expect(urls).toEqual([]);
-	});
 });
 
 describe('the rate limiter', () => {
 	it('refuses a second lookup inside one second, and issues nothing for it', async () => {
-		// ⚠ **Counted, not read off the returned value.** A limiter that produced `too-fast` *after*
-		// asking the service would satisfy every assertion about the outcome and would be exactly the
-		// violation the limiter exists to prevent — the service's policy is about requests, not about
-		// what this application does with the answers.
 		const { fetch, urls } = answering([result()]);
 		let clock = 1_000;
 		const limiter = createLookupRateLimiter(() => clock);
@@ -190,7 +136,6 @@ describe('the rate limiter', () => {
 		});
 		expect(urls, 'a request went out for the refused lookup').toHaveLength(1);
 
-		// And the second is not lost for ever: a scholar's remedy is to wait a moment and press Enter.
 		clock += 1;
 		await expect(ask('Springfield again', { fetch, limiter })).resolves.toMatchObject({
 			kind: 'places'
@@ -199,16 +144,12 @@ describe('the rate limiter', () => {
 	});
 
 	it('gives the service’s own 429 the same outcome its refusal produces', async () => {
-		// One code path and one sentence: the scholar's remedy is identical, and which side counted is
-		// not a fact they can act on (ADR-0029).
 		const { fetch } = answering([], 429);
 
 		await expect(ask('Springfield', { fetch })).resolves.toEqual({ kind: 'too-fast' });
 	});
 
 	it('spends no second on a blank query', async () => {
-		// Nothing was asked, so nothing is owed: refusing the real search that follows a blank submit
-		// would be the limiter charging for silence.
 		const { fetch, urls } = answering([result()]);
 		const limiter = createLookupRateLimiter(() => 1_000);
 
@@ -218,15 +159,6 @@ describe('the rate limiter', () => {
 	});
 
 	it('paces a caller that brings no limiter of its own', async () => {
-		// The default is what the application gets, and a default of "no limiter at all" would leave an
-		// autocomplete working perfectly on the implementer's own machine — which is the one thing this
-		// is here to make visibly impossible.
-		//
-		// ⚠ `lookUpPlaces` with no limiter of its own, which is the only thing in this file that reaches
-		// the shared one — and **the shared one is stood in for rather than raced**. Two calls back to
-		// back against the real clock assert that under 1000ms of wall clock passed between two awaits,
-		// which a garbage collection on a loaded machine is enough to make false; and the second this
-		// test spent would otherwise still be on the shared limiter for whatever came next.
 		const { fetch, urls } = answering([result()]);
 		let clock = 1_000;
 		const restore = withSharedLookupRateLimiter(createLookupRateLimiter(() => clock));
@@ -246,7 +178,6 @@ describe('the rate limiter', () => {
 
 describe('the configured service', () => {
 	it('escapes the query into the URL it builds', async () => {
-		// The host itself is deliberately not named here: `service.ts` is the one module that may.
 		expect(PLACE_SERVICE.searchUrl('Boston Common & the Public Garden')).toContain(
 			'Boston%20Common%20%26%20the%20Public%20Garden'
 		);

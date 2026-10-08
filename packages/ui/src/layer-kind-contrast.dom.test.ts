@@ -41,7 +41,6 @@ test('Layer cards use each kind’s theme fill and content tokens', () => {
 		}
 	});
 	flushSync();
-
 	const headers = document.querySelectorAll<HTMLElement>('[data-testid="layer-header"]');
 	expect(headers[0]).toHaveClass('bg-accent');
 	expect(headers[1]).toHaveClass('bg-info');
@@ -67,7 +66,6 @@ test('the rename pencil follows its header’s ink rather than base-content', ()
 		}
 	});
 	flushSync();
-
 	const pencil = document.querySelector<HTMLElement>('[data-testid="layer-rename"]');
 	for (const cls of [
 		'bg-transparent',
@@ -80,22 +78,18 @@ test('the rename pencil follows its header’s ink rather than base-content', ()
 	}
 });
 
-test('both apps define Layer fill and content tokens in every custom theme', () => {
-	for (const app of ['editor', 'viewer']) {
-		const css = readFileSync(path.join(here, `../../../apps/${app}/src/routes/layout.css`), 'utf8');
-		const themes = [...css.matchAll(/@plugin\s+'daisyui\/theme'\s*\{([^}]*)\}/g)];
-		expect(themes, `apps/${app}`).toHaveLength(2);
-		for (const [, body] of themes) {
-			for (const token of [
-				'--color-accent',
-				'--color-accent-content',
-				'--color-info',
-				'--color-info-content'
-			]) {
-				expect(body, `apps/${app}: ${token}`).toMatch(
-					new RegExp(`${token}:\\s*#[0-9a-f]{6};`, 'i')
-				);
-			}
+test('every custom theme defines Layer fill and content tokens', () => {
+	const css = readFileSync(path.join(here, 'layout.css'), 'utf8');
+	const themes = [...css.matchAll(/@plugin\s+'daisyui\/theme'\s*\{([^}]*)\}/g)];
+	expect(themes).toHaveLength(2);
+	for (const [, body] of themes) {
+		for (const token of [
+			'--color-accent',
+			'--color-accent-content',
+			'--color-info',
+			'--color-info-content'
+		]) {
+			expect(body, token).toMatch(new RegExp(`${token}:\\s*#[0-9a-f]{6};`, 'i'));
 		}
 	}
 });

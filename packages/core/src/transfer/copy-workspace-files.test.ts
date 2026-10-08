@@ -8,60 +8,36 @@ import {
 	serialiseReviewMark
 } from '../project/review-workspace.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
-import type { Bytes, StorePath, WritablePath } from '../store/project-store.js';
+import type { WritablePath } from '../store/project-store.js';
+import { decode, encode, seeded, snapshot } from '../test-support.js';
 import { copyWorkspaceFiles } from './copy-workspace-files.js';
 import type { TransferProgress } from './transfer.js';
 
-// Seam 1: "after the move the folder holds these files with these contents, and the Workspace it came
-// from holds exactly what it held" is not a proxy for moving a Workspace into a folder, it *is* it.
-
-const encode = (text: string): Bytes => new TextEncoder().encode(text);
-const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
-
-const contents = async (store: MemoryProjectStore): Promise<Record<string, string>> =>
-	Object.fromEntries(
-		await Promise.all(
-			(await store.list('')).map(async (path) => [path, decode(await store.read(path))] as const)
-		)
-	);
-
-const workspace = async (files: Readonly<Record<string, string>>): Promise<MemoryProjectStore> => {
-	const store = new MemoryProjectStore();
-	for (const [path, text] of Object.entries(files)) {
-		// alignment-write-is-the-fixture: a whole Workspace as the specimen to be copied, and no caller of this helper names an Alignment path
-		await store.write(path as WritablePath, encode(text));
-	}
-	return store;
-};
-
 describe('copying a Workspace into a folder', () => {
 	it('puts every file in the destination, byte for byte', async () => {
-		const from = await workspace({
+		const from = await seeded({
 			'amsterdam-1625/project.json': '{"name":"Amsterdam 1625"}',
 			'images/abc/info.json': '{"width":1}',
 			'images/abc/full/max/0/default.jpg': 'jpeg bytes',
 			'base-map/extract.pmtiles': 'offline base map'
 		});
 		const to = new MemoryProjectStore();
-
 		const copied = await copyWorkspaceFiles({ from, to, workspaceName: 'My Workspace' });
-
-		expect(await contents(to)).toEqual(await contents(from));
+		expect(await snapshot(to)).toEqual(await snapshot(from));
 		expect(copied).toEqual({ files: 4, bytes: 62 });
 	});
 
 	it('leaves the Workspace it came from exactly as it was', async () => {
-		const from = await workspace({ 'atlas/project.json': '{"name":"Atlas"}' });
-		const before = await contents(from);
+		const from = await seeded({ 'atlas/project.json': '{"name":"Atlas"}' });
+		const before = await snapshot(from);
 
 		await copyWorkspaceFiles({ from, to: new MemoryProjectStore(), workspaceName: 'Atlas' });
 
-		expect(await contents(from)).toEqual(before);
+		expect(await snapshot(from)).toEqual(before);
 	});
 
 	it('copies an Alignment, which only one writer may write (ADR-0023)', async () => {
 		const from = new MemoryProjectStore();
-		// alignment-write-is-the-fixture: the Alignment the source Workspace holds, which is the specimen the copy has to carry over through the one writer
 		await from.write(alignmentPath('abc') as unknown as WritablePath, encode('{"gcps":[]}'));
 		const to = new MemoryProjectStore();
 
@@ -71,20 +47,19 @@ describe('copying a Workspace into a folder', () => {
 	});
 
 	it('refuses a folder that already holds a file, and writes nothing at all', async () => {
-		const from = await workspace({ 'atlas/project.json': '{"name":"Atlas"}' });
-		const to = await workspace({ 'notes.txt': "somebody else's" });
+		const from = await seeded({ 'atlas/project.json': '{"name":"Atlas"}' });
+		const to = await seeded({ 'notes.txt': "somebody else's" });
 
 		await expect(copyWorkspaceFiles({ from, to, workspaceName: 'Atlas' })).rejects.toThrow(
 			/already holds files.*“Atlas” was not moved/s
 		);
 
-		expect(await contents(to)).toEqual({ 'notes.txt': "somebody else's" });
+		expect(await snapshot(to)).toEqual({ 'notes.txt': "somebody else's" });
 	});
 
 	it('refuses a review copy, so somebody else’s work never lands in a folder', async () => {
-		const from = await workspace({ 'amsterdam-1625/project.json': '{"name":"Amsterdam 1625"}' });
+		const from = await seeded({ 'amsterdam-1625/project.json': '{"name":"Amsterdam 1625"}' });
 		await from.write(
-			// alignment-write-is-the-fixture: the review mark, which is `review.json` and no Alignment at all — the cast is the store's WritablePath brand and nothing else
 			REVIEW_MARK_PATH as WritablePath,
 			serialiseReviewMark({
 				formatVersion: REVIEW_MARK_FORMAT_VERSION,
@@ -104,7 +79,7 @@ describe('copying a Workspace into a folder', () => {
 	});
 
 	it('announces per-file progress against a real denominator', async () => {
-		const from = await workspace({ 'a/project.json': 'aa', 'b/project.json': 'bbb' });
+		const from = await seeded({ 'a/project.json': 'aa', 'b/project.json': 'bbb' });
 		const seen: TransferProgress[] = [];
 
 		await copyWorkspaceFiles({
@@ -132,6 +107,6 @@ describe('copying a Workspace into a folder', () => {
 		});
 
 		expect(copied).toEqual({ files: 0, bytes: 0 });
-		expect(await to.list('')).toEqual([] as StorePath[]);
+		expect(await to.list('')).toEqual([]);
 	});
 });

@@ -3,36 +3,8 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 import { chromiumLaunchArgs } from '../../scripts/gpu-launch-args.mjs';
 
-// Chromium here gets the same launch flags every other Chromium this repository starts gets, and is
-// refused by the same rule when a workstation would reach the software rasteriser without saying so.
-// It had none: two engines through the Playwright provider with no launch options at all, so neither
-// `GPU_LAUNCH_ARGS` nor the `--num-raster-threads=1` cap applied and this suite alone was measured at
-// mean 12.0 of twenty busy cores. `null` is the GitHub Actions runner, which keeps Chromium's own
-// defaults.
-//
-// Firefox takes none of them: they are Chromium flags, and Firefox has no equivalent to hand. It is
-// one instance rather than the raster fan-out Chromium was doing, which is why it was not the cost.
 const chromiumArgs = chromiumLaunchArgs();
 
-// Two projects, because the storage layer has two kinds of test and only one of them can run
-// in Node.
-//
-// `node` is Seam 1, the primary seam: an in-memory ProjectStore drives application logic and
-// assertions are on the resulting files. Fast, deterministic, no browser.
-//
-// `browser` exists because there is no OPFS in Node. The shared adapter suite has to run
-// against the real backend — a Node stub of OPFS would only prove the stub agrees with the
-// memory adapter, which is the very thing the suite exists to check. The File System Access
-// adapter is in this project for the same reason.
-//
-// It runs in **two engines**, because OPFS is the universal backend and the tool must work fully
-// where folder access is impossible — Firefox, Safari, iPad — so a claim about other browsers
-// asserted only in Chromium is not asserted. Firefox is where the divergence would show:
-// it is a different OPFS implementation, not a different rendering of the same one.
-//
-// It is deliberately only this project. The Playwright suite drives MapLibre over WebGL, which is
-// a much larger cross-engine question and a CI decision of its own; the storage layer is where
-// the universal-backend promise actually lives.
 export default defineConfig({
 	test: {
 		expect: { requireAssertions: true },
@@ -41,31 +13,13 @@ export default defineConfig({
 				test: {
 					name: 'node',
 					environment: 'node',
-					// `vitest-setup/` as well as `src/`, so the network fence's positive control sits
-					// beside the fence rather than in a directory of its own.
 					include: ['src/**/*.test.ts', 'vitest-setup/**/*.test.ts'],
 					exclude: ['src/**/*.browser.test.ts', 'vitest-setup/**/*.browser.test.ts'],
 					expect: { requireAssertions: true },
-					// No test may reach the network — see the file's own header. Named per project
-					// rather than once at the top, because a `setupFiles` on the root config is not
-					// inherited by `projects` and would have applied to nothing at all.
 					setupFiles: ['./vitest-setup/refuse-network.ts']
 				}
 			},
 			{
-				// ⚠ **`optimizeDeps.include` is not tuning; it is what stops this project hanging.**
-				// Vite re-optimizes dependencies when the lockfile changes, and in browser mode it
-				// does so *during* the run and then reloads — which vitest itself warns "may cause
-				// tests to fail, lead to flaky behaviour or duplicated test runs". Measured on the
-				// run that added `modern-tar`: the suite produced its last line at
-				// 10:06:49 and was still alive with no further output forty minutes later. The run
-				// before it exited 1 for the same reason, and its output had been discarded, so it
-				// went down as unexplained. A second run always passes, because by then the cache
-				// is warm — which is exactly what makes this look like flake rather than a cause.
-				//
-				// So every dependency the browser tests pull in is listed here. **Adding a
-				// dependency to a browser test means adding it here**, or the next person after a
-				// `pnpm install` pays the same forty minutes and is told it was contention.
 				optimizeDeps: {
 					include: [
 						'@allmaps/annotation',
@@ -79,6 +33,7 @@ export default defineConfig({
 					include: ['src/**/*.browser.test.ts', 'vitest-setup/**/*.browser.test.ts'],
 					expect: { requireAssertions: true },
 					setupFiles: ['./vitest-setup/refuse-network.ts'],
+					globalSetup: ['../../scripts/assert-gpu.mjs'],
 					browser: {
 						enabled: true,
 						headless: true,
@@ -88,15 +43,17 @@ export default defineConfig({
 								browser: 'chromium',
 								...(chromiumArgs === null ? {} : { launchOptions: { args: [...chromiumArgs] } })
 							},
-							{
-								browser: 'firefox',
-								// The Map Snapshot test is the one file here that needs a WebGL context, and the
-								// GitHub Actions runner's Firefox has none to give: it fails every assertion in
-								// the file with "no WebGL context", on a machine where Chromium's software
-								// rasteriser answers fine. Firefox's second PNG encoder was the reason to ask it
-								// too, which is a want and not the claim; the claim is asserted in Chromium.
-								exclude: [...configDefaults.exclude, 'src/render/map-snapshot.browser.test.ts']
-							}
+							...(chromiumArgs === null
+								? [
+										{
+											browser: 'firefox' as const,
+											exclude: [
+												...configDefaults.exclude,
+												'src/render/map-snapshot.browser.test.ts'
+											]
+										}
+									]
+								: [])
 						]
 					}
 				}

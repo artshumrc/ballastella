@@ -3,21 +3,6 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
-// A static web server for a Workspace served as a site, so that "the site works" can be asserted against a
-// site rather than against a directory listing.
-//
-// ADR-0045's relative-path rule is that **one build serves a domain root and a project subdirectory**, and
-// the only way to find out is to serve the same bytes at both and drive them. `vite preview` cannot:
-// it serves an app's own build, and what is being served here is the user's Workspace as it came out
-// of OPFS. So this is a plain file server, deliberately dumb — no rewriting, no SPA fallback, no
-// index-guessing beyond a trailing slash — because a static host does none of those either, and a
-// server cleverer than GitHub Pages would hide exactly the failure being looked for.
-//
-// The `prefix` is the point. Given one directory, one server can answer at `/` and another at
-// `/deep/nested/`, from the same files with no reconfiguration — so an asset referenced as `/_app/…`
-// rather than `./_app/…` is a 404 on the second, which is what the tests assert on.
-
-/** Media types by extension. A `.js` served as `text/plain` is a module the browser will not run. */
 const MEDIA_TYPES: Record<string, string> = {
 	'.css': 'text/css; charset=utf-8',
 	'.geojson': 'application/geo+json',
@@ -35,13 +20,9 @@ const MEDIA_TYPES: Record<string, string> = {
 };
 
 export type StaticSite = {
-	/** The site's address, with a trailing slash. */
 	readonly url: string;
-	/** The path this site is served under — `''` for a domain root. */
 	readonly prefix: string;
-	/** Every path this server was asked for, in order, as it arrived. */
 	readonly requests: string[];
-	/** Every path it answered with something other than 200. */
 	readonly failures: { path: string; status: number }[];
 	close(): Promise<void>;
 };
@@ -66,15 +47,12 @@ export async function serveDirectory(directory: string, prefix = ''): Promise<St
 
 		const url = new URL(asked, 'http://localhost');
 		if (!url.pathname.startsWith(`${prefix}/`)) {
-			// Exactly what a static host does with a path outside the served folder. An asset
-			// referenced absolutely lands here, which is the failure the relative-path rule exists to prevent (ADR-0045).
 			answer(404, `${url.pathname} is outside ${prefix}/`, 'text/plain; charset=utf-8');
 			return;
 		}
 
 		let relative = decodeURIComponent(url.pathname.slice(prefix.length + 1));
 		if (relative === '' || relative.endsWith('/')) relative += 'index.html';
-		// `path.resolve` normalises `..` away; the containment check is what makes it safe to say so.
 		const file = path.resolve(directory, relative);
 		if (file !== directory && !file.startsWith(`${directory}${path.sep}`)) {
 			answer(403, 'outside the served folder', 'text/plain; charset=utf-8');
@@ -98,10 +76,6 @@ export async function serveDirectory(directory: string, prefix = ''): Promise<St
 		failures,
 		close: () =>
 			new Promise<void>((resolve, reject) => {
-				// Keep-alive sockets first, or `close()` waits for a browser that has no reason to hang up and
-				// the teardown times out. A page that has just loaded a site holds one open by default, so
-				// this is the ordinary case rather than a stuck request — and a static host closing its
-				// listener does not owe a browser its connection either.
 				server.closeAllConnections();
 				server.close((error) => (error ? reject(error) : resolve()));
 			})

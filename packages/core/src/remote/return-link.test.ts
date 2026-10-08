@@ -2,67 +2,38 @@ import { describe, expect, it } from 'vitest';
 
 import { parsePublishedSite, readReturnLink, returnLinkUrl, withoutReturnLink } from '../index.js';
 
-// The in-memory seam for the Front Page's return links. One module holds both halves — the address a
-// Published Site puts in an `href` and the parameters the editor reads back off its own URL — so the
-// two cannot come to disagree about what a link is called, which is the failure a second reader
-// would produce silently.
-
 const INSTANCE = 'https://maps.example.edu/ballastella/';
+const CLONE = { kind: 'clone', owner: 'ada', repository: 'atlas' } as const;
+const review = (project: string) => ({ ...CLONE, kind: 'review', project }) as const;
 
 describe('the link a Published Site sends a Reader back with', () => {
 	it('addresses the recorded instance with the whole Workspace to clone', () => {
-		expect(returnLinkUrl(INSTANCE, { kind: 'clone', owner: 'ada', repository: 'atlas' })).toBe(
+		expect(returnLinkUrl(INSTANCE, CLONE)).toBe(
 			'https://maps.example.edu/ballastella/?clone=ada/atlas'
 		);
 	});
 
 	it('addresses it with one Project to review', () => {
-		expect(
-			returnLinkUrl(INSTANCE, {
-				kind: 'review',
-				owner: 'ada',
-				repository: 'atlas',
-				project: 'amsterdam-1625'
-			})
-		).toBe('https://maps.example.edu/ballastella/?review=ada/atlas&p=amsterdam-1625');
+		expect(returnLinkUrl(INSTANCE, review('amsterdam-1625'))).toBe(
+			'https://maps.example.edu/ballastella/?review=ada/atlas&p=amsterdam-1625'
+		);
 	});
 
-	/**
-	 * A site whose record says nothing about an instance carries no link (ADR-0045).
-	 *
-	 * The alternative — guessing at a canonical deployment — would send a Reader to a stranger's
-	 * editor, offering to clone a repository into somebody else's tool.
-	 */
 	it('is nothing at all when the site does not say which instance wrote it', () => {
-		expect(returnLinkUrl('', { kind: 'clone', owner: 'ada', repository: 'atlas' })).toBeNull();
+		expect(returnLinkUrl('', CLONE)).toBeNull();
 	});
 
 	it('is nothing at all when the recorded instance is not an address', () => {
-		expect(
-			returnLinkUrl('not an address', { kind: 'clone', owner: 'ada', repository: 'atlas' })
-		).toBeNull();
+		expect(returnLinkUrl('not an address', CLONE)).toBeNull();
 	});
 
 	it('percent-encodes a Project directory rather than letting it write its own parameters', () => {
-		expect(
-			returnLinkUrl(INSTANCE, {
-				kind: 'review',
-				owner: 'ada',
-				repository: 'atlas',
-				project: 'a&clone=someone/else'
-			})
-		).toBe('https://maps.example.edu/ballastella/?review=ada/atlas&p=a%26clone%3Dsomeone%2Felse');
+		expect(returnLinkUrl(INSTANCE, review('a&clone=someone/else'))).toBe(
+			'https://maps.example.edu/ballastella/?review=ada/atlas&p=a%26clone%3Dsomeone%2Felse'
+		);
 	});
 });
 
-/**
- * The record's own coordinates, read back and turned into the two shipped invitation URLs.
- *
- * ⚠ **The shapes are the shipped ones**, `?clone=owner/repository` and
- * `?review=owner/repository&p=directory`. Sites carrying those links are in front
- * of Readers now and the editor's parser reads exactly these two parameters, so where the
- * coordinates come from may change and the address may not.
- */
 describe('a site record naming its own repository', () => {
 	const record = (fields: Record<string, unknown>) =>
 		parsePublishedSite(new TextEncoder().encode(JSON.stringify({ projects: [], ...fields })));
@@ -86,15 +57,10 @@ describe('a site record naming its own repository', () => {
 		]);
 	});
 
-	// A site written into a folder rather than sent to a Remote, and every site written before the
-	// field existed. The tolerant answer is "no repository on the record", never a refusal to read the
-	// record at all: the cost is a Front Page with one fewer link.
 	it('reads a record written before the field existed as naming no repository', () => {
 		expect(record({ editorUrl: INSTANCE }).repository).toBeNull();
 	});
 
-	// A record is a file on a host somebody else may control, and both halves are interpolated into a
-	// GitHub API path. `ada/../../orgs` would retarget every request the Open engine makes.
 	it.each([
 		[{ owner: 'ada/../../orgs', repository: 'atlas' }],
 		[{ owner: 'ada', repository: '..' }],
@@ -117,24 +83,13 @@ describe('the link an editor is landed on', () => {
 	const read = (query: string) => readReturnLink(new URL(`https://x.test/${query}`).searchParams);
 
 	it('offers to clone the whole Workspace', () => {
-		expect(read('?clone=ada/atlas')).toEqual({
-			kind: 'clone',
-			owner: 'ada',
-			repository: 'atlas'
-		});
+		expect(read('?clone=ada/atlas')).toEqual(CLONE);
 	});
 
 	it('offers to review the one Project ?p= names', () => {
-		expect(read('?review=ada/atlas&p=amsterdam-1625')).toEqual({
-			kind: 'review',
-			owner: 'ada',
-			repository: 'atlas',
-			project: 'amsterdam-1625'
-		});
+		expect(read('?review=ada/atlas&p=amsterdam-1625')).toEqual(review('amsterdam-1625'));
 	});
 
-	// The ordinary case, and the one that must cost nothing: every editor URL that is not a return
-	// link — the hub, a Project, a sign-in callback — passes through here.
 	it.each([['?'], ['?p=amsterdam-1625'], ['?code=abc&state=def']])(
 		'is nothing at all for %s, which is not a return link',
 		(query) => {
@@ -142,20 +97,10 @@ describe('the link an editor is landed on', () => {
 		}
 	);
 
-	// A Review is *of a Project*, and the whole repository is what the other parameter is for. Without
-	// `?p=` there is nothing to offer, and quietly turning it into a whole-repository invitation
-	// would take a Reader who
-	// asked to look at one piece of work and hand them everything.
 	it('offers nothing for a review that names no Project', () => {
 		expect(read('?review=ada/atlas')).toBeNull();
 	});
 
-	/**
-	 * ⚠ **A link is a thing anyone can send.** Both fields are interpolated into a GitHub API path by
-	 * the inbound and Review engines, where an owner of `ada/../../orgs` retargets every request they
-	 * make — the trap `normaliseRemoteIdentity` records, and the reason the same checked reader is used
-	 * here rather than a split on `/`.
-	 */
 	it.each([['ada/../../orgs'], ['ada'], ['ada/atlas/tree/main'], ['/atlas'], ['ada atlas']])(
 		'offers nothing for %s, which is not a repository',
 		(reference) => {
@@ -163,26 +108,13 @@ describe('the link an editor is landed on', () => {
 		}
 	);
 
-	// A URL carrying both is one nobody writes: they are two different invitations, and this says
-	// which one arrives rather than leaving it to parameter order.
 	it('takes the whole-repository invitation when a link somehow carries both', () => {
-		expect(read('?clone=ada/atlas&review=ada/atlas&p=amsterdam-1625')).toEqual({
-			kind: 'clone',
-			owner: 'ada',
-			repository: 'atlas'
-		});
+		expect(read('?clone=ada/atlas&review=ada/atlas&p=amsterdam-1625')).toEqual(CLONE);
 	});
 
 	it('reads back exactly what a Published Site wrote', () => {
-		const link = {
-			kind: 'review',
-			owner: 'ada',
-			repository: 'atlas',
-			project: 'a&clone=someone/else'
-		} as const;
-
+		const link = review('a&clone=someone/else');
 		const url = returnLinkUrl(INSTANCE, link);
-
 		expect(readReturnLink(new URL(url ?? '').searchParams)).toEqual(link);
 	});
 });
@@ -191,13 +123,10 @@ describe('the address the editor is left on', () => {
 	const strip = (query: string) =>
 		withoutReturnLink(new URL(`https://x.test/${query}`).searchParams);
 
-	// A reload must not offer again, which is the whole reason this exists.
 	it('is this app’s own root when the link carried nothing else', () => {
 		expect(strip('?clone=ada/atlas')).toBe('');
 	});
 
-	// ⚠ `?p=` is the review link's own Project and keeps its ordinary meaning (ADR-0008): it is what
-	// the editor is showing, and it is what the review copy will hold.
 	it('keeps the Project the review link named', () => {
 		expect(strip('?review=ada/atlas&p=amsterdam-1625')).toBe('?p=amsterdam-1625');
 	});

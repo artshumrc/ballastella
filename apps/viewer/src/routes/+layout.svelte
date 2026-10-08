@@ -12,11 +12,7 @@
 	<link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
 	<meta name="theme-color" content="#fbfaf7" />
 </svelte:head>
-<!--
-	Outside `children()` so it is on every screen of the site — the Front Page, a Project, and a
-	Map Image read as a document — and *before* it so it is first in the tab order and first for a
-	screen reader: a bar announced after the page it belongs to is a footer.
--->
+<!-- Bar before children: first in tab order and for screen readers. -->
 <div class="flex h-screen flex-col">
 	<SiteBar />
 	<div class="flex min-h-0 grow flex-col overflow-y-auto">{@render children()}</div>

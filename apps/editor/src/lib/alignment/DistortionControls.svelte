@@ -1,16 +1,4 @@
 <script lang="ts">
-	// The distortion view: the colour overlay, which measure it shows, and the warped graticule
-	// (ADR-0013).
-	//
-	// **None of this is persisted.** It is a working view, not a property of the work: persisted, it
-	// would become layer display state under ADR-0002 and a Published Site could load colourised, with
-	// a Reader having no way to interpret it. So the state lives in the page and nothing here reaches
-	// `EditorSession`.
-	//
-	// The overlay is off by default because a colourised map is not what you want while placing
-	// Control Points. The fold warning is **not** here: it is continuous, independent of this, and
-	// belongs beside the Alignment's other feedback rather than beside a display toggle.
-
 	import { DISTORTION_MEASURES, type DistortionView } from '@ballastella/core';
 
 	let {
@@ -19,26 +7,12 @@
 		onchange
 	}: {
 		view: DistortionView;
-		/**
-		 * Whether there is a warped Map Image to colourise at all.
-		 *
-		 * Below the minimum Control Point count there is no drawn map, so a checkbox that turned an
-		 * overlay on would do nothing visible and read as broken. Disabled with the reason said, rather
-		 * than hidden — a control that appears when enough points exist is a control the user never
-		 * learns about.
-		 */
 		enabled: boolean;
 		onchange: (next: DistortionView) => void;
 	} = $props();
 
-	/** Which measure the overlay shows when it is switched on, remembered across a switch off. */
 	let lastMeasure = $state(DISTORTION_MEASURES[0]?.measure ?? 'log2sigma');
-
-	const showing = $derived(view.measure !== null);
-
-	const toggleOverlay = (on: boolean): void => {
-		onchange({ ...view, measure: on ? lastMeasure : null });
-	};
+	const current = $derived(DISTORTION_MEASURES.find((one) => one.measure === view.measure));
 
 	const chooseMeasure = (name: string): void => {
 		const match = DISTORTION_MEASURES.find((one) => one.measure === name);
@@ -46,8 +20,6 @@
 		lastMeasure = match.measure;
 		onchange({ ...view, measure: match.measure });
 	};
-
-	const current = $derived(DISTORTION_MEASURES.find((one) => one.measure === view.measure));
 </script>
 
 <div
@@ -63,17 +35,12 @@
 			<input
 				type="checkbox"
 				class="toggle toggle-sm"
-				checked={showing}
+				checked={view.measure !== null}
 				disabled={!enabled}
 				data-testid="distortion-toggle"
-				onchange={(event) => toggleOverlay(event.currentTarget.checked)}
+				onchange={(event) =>
+					onchange({ ...view, measure: event.currentTarget.checked ? lastMeasure : null })}
 			/>
-			<!--
-				"the Map Image", never a bare "map". CONTEXT.md lists `map` under the words to avoid
-				for a Map Image, and this label sits beside a Base Map — so the unqualified word is
-				ambiguous exactly where the user is looking at both. The component's other five strings
-				were already qualified.
-			-->
 			Colour the Map Image by how much it is stretched
 		</label>
 
@@ -90,12 +57,7 @@
 		</label>
 	</div>
 
-	{#if showing}
-		<!--
-			Native `<select>`, the same discipline the transformation picker follows (ADR-0016). Only
-			present while something is being coloured: a measure picker beside an overlay that is off is
-			a control with no effect.
-		-->
+	{#if view.measure !== null}
 		<div class="flex flex-wrap items-center gap-2">
 			<label class="text-sm font-medium" for="distortion-measure">What the colours show</label>
 			<select

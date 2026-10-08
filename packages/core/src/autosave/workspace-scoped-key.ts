@@ -1,26 +1,8 @@
-// The key shape shared by everything this application keeps in `localStorage` per Workspace.
-//
-// `journal.ts` and `deleted-projects.ts` need exactly the same
-// shape for exactly the same reason: two records keyed only by their subject would let an edit
-// typed into "Marking 2026" be replayed into whichever Workspace happened to be open at the next
-// startup, and a *deletion* performed in one Workspace be finished in another. A second
-// hand-written copy of the encoding is a second thing that can drift from the first, and the
-// failure it would produce — a key one module writes and the other cannot read — is silent.
-//
-// `encodeURIComponent` on both halves, and it is what makes the key unambiguous rather than merely
-// tidy: a Workspace name is arbitrary user text in any script (`toWorkspaceName` keeps letters,
-// marks, numbers, spaces, `(`, `)`, `_` and `-`), a store path contains `/`, and
-// concatenating the two raw would let a Workspace called `a/b` and a Workspace called `a` holding
-// `b/…` produce the same key. Encoding escapes `/` in both, so the single unescaped `/` is the only
-// separator.
-
 import type { JournalStorage } from './journal.js';
 
-/** The key naming `subject` inside `workspace`, under `prefix`. */
 export const workspaceScopedKey = (prefix: string, workspace: string, subject: string): string =>
 	`${prefix}${encodeURIComponent(workspace)}/${encodeURIComponent(subject)}`;
 
-/** The `{ workspace, subject }` a key names, or `null` if it is not one written under `prefix`. */
 export function parseWorkspaceScopedKey(
 	prefix: string,
 	key: string
@@ -35,13 +17,10 @@ export function parseWorkspaceScopedKey(
 			subject: decodeURIComponent(body.slice(cut + 1))
 		};
 	} catch {
-		// A malformed `%` escape. Someone else's key under our prefix, or a truncated one; either way
-		// it names no Workspace and no subject, so it is a problem to report rather than a record.
 		return null;
 	}
 }
 
-/** Every key currently in `storage` under `prefix`, snapshotted so removals cannot skip one. */
 export function keysWithPrefix(storage: JournalStorage, prefix: string): string[] {
 	const keys: string[] = [];
 	for (let index = 0; index < storage.length; index += 1) {
@@ -50,3 +29,31 @@ export function keysWithPrefix(storage: JournalStorage, prefix: string): string[
 	}
 	return keys;
 }
+
+export function keysNamed<T extends { workspace: string }>(
+	storage: JournalStorage,
+	prefix: string,
+	parse: (key: string) => T | null
+): (T & { key: string })[] {
+	const found: (T & { key: string })[] = [];
+	for (const key of keysWithPrefix(storage, prefix)) {
+		const named = parse(key);
+		if (named !== null) found.push({ ...named, key });
+	}
+	return found;
+}
+
+export const workspaceNames = (named: readonly { workspace: string }[]): string[] =>
+	[...new Set(named.map(({ workspace }) => workspace))].sort((a, b) => a.localeCompare(b));
+
+export function removeQuietly(storage: JournalStorage, key: string): boolean {
+	try {
+		storage.removeItem(key);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export const removeAll = (storage: JournalStorage, named: readonly { key: string }[]): number =>
+	named.filter(({ key }) => removeQuietly(storage, key)).length;

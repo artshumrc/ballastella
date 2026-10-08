@@ -1,77 +1,27 @@
 import { asFirstVisit, DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
-import { deleteProject, openProjectEditor } from './support/annotations.js';
+import {
+	deleteProject,
+	hashesUnder,
+	openNewProject,
+	openProjectEditor
+} from './support/annotations.js';
 import { openAddMapImage } from './support/map-images';
 import { openProjectSettings, projectNameField } from './support/project-screen';
 import { recordSaveStates } from './support/saved';
 import { readStoredFile, seedFile } from './support/stored-file';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { createWorkspace, switchToWorkspace } from './support/workspace.js';
+import {
+	createWorkspace,
+	emptyWorkspace as emptyOpenWorkspace,
+	switchToWorkspace
+} from './support/workspace.js';
 
-// Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
-// and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
-// So the archive is served from the committed fixture, in one place, for the whole file.
-//
-// **`context` rather than `page`**: a request that has passed through a service worker is not the
-// page's own as far as Playwright is concerned, and `page.route` never sees it (measured in
-// `editor-pwa.e2e.ts`, which says so at its own interception). Routing the context has no downside
-// for a spec with no worker, and is the spelling that keeps working when one appears.
 test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
-/**
- * Seam 2: the running app in a real browser against real OPFS.
- *
- * Everything here is a browser behaviour that the core suite cannot see — the save indicator
- * transitioning, the `formatVersion: 2` refusal reaching a screen, "Workspace not reachable"
- * being a page rather than an error boundary, and `<dialog>`'s Escape and focus restoration.
- * The storage layer itself is asserted in `@ballastella/core`, against both adapters.
- */
-
-/** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
-	await page.evaluate(async () => {
-		// The whole of browser storage, which is **every named Workspace** rather than one — so no test
-		// can see another's, whichever Workspace it was in.
-		//
-		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
-		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
-		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
-		// under a running app therefore latches it "unreachable" until a reload — a state about the
-		// harness rather than about the product, and one that used to be unreachable because emptying
-		// the root left the root itself in place. Emptying it is exactly what this always meant.
-		const root = await navigator.storage.getDirectory();
-		const open = await workspaceRoot();
-		const names: string[] = [];
-		for await (const name of root.keys()) names.push(name);
-		await Promise.all(
-			names
-				.filter((name) => name !== open.name)
-				.map((name) => root.removeEntry(name, { recursive: true }))
-		);
-		const inside: string[] = [];
-		for await (const name of open.keys()) inside.push(name);
-		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
-	});
-	// The `localStorage` half of "no test can see another's Projects", which was missing: a record
-	// naming a folder outlives the folder, and the next test's `seedProject` puts that folder back.
-	await forgetEveryRecord(page);
-}
-
-/**
- * Drop every write-ahead journal entry **and** every unfinished-deletion record in the origin.
- *
- * ⚠ **Both prefixes, and the second was missing.** OPFS and `localStorage` are origin-shared across
- * every test in this harness, and {@link seedProject} writes `project.json`
- * straight into OPFS — bypassing `Workspace.#claim`, which is what would otherwise drop a stale
- * record naming that folder. So a `ballastella.deleted.` key left behind by a failing run survived
- * into later tests, where a startup could act on it against a seeded Project and present as an
- * unrelated flake.
- *
- * Named prefixes rather than `localStorage.clear()`: `ballastella.workspace` and its two siblings are
- * which Workspace the harness is in, and clearing those is a different test's subject.
- */
-async function forgetEveryRecord(page: Page): Promise<void> {
+	await emptyOpenWorkspace(page);
 	await page.evaluate(() => {
 		for (const key of Object.keys(localStorage)) {
 			if (key.startsWith('ballastella.journal.') || key.startsWith('ballastella.deleted.')) {
@@ -81,22 +31,21 @@ async function forgetEveryRecord(page: Page): Promise<void> {
 	});
 }
 
-/** Write a `project.json` straight into OPFS, bypassing the app entirely. */
-async function seedProject(page: Page, directory: string, json: string): Promise<void> {
-	await page.evaluate(
-		async ([directory, json]) => {
-			const root = await workspaceRoot();
-			const project = await root.getDirectoryHandle(directory as string, { create: true });
-			const file = await project.getFileHandle('project.json', { create: true });
-			const writable = await file.createWritable();
-			await writable.write(json as string);
-			await writable.close();
-		},
-		[directory, json]
-	);
+async function fresh(page: Page): Promise<void> {
+	await page.goto('./');
+	await emptyWorkspace(page);
+	await page.reload();
 }
 
-/** Every path in OPFS, so "the pyramid is still there" is provable from outside the app. */
+const holdBackTheDebounce = (page: Page) =>
+	page.addInitScript(() => {
+		const real = window.setTimeout;
+		window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) =>
+			typeof delay === 'number' && delay >= 400
+				? 0
+				: real(handler as never, delay, ...args)) as typeof window.setTimeout;
+	});
+
 async function everyPath(page: Page): Promise<string[]> {
 	return page.evaluate(async () => {
 		const paths: string[] = [];
@@ -111,74 +60,29 @@ async function everyPath(page: Page): Promise<string[]> {
 	});
 }
 
-/**
- * SHA-256 of every file in a Project directory, **recursively**, so "nothing was written" is
- * provable.
- *
- * The recursion is the point. Skipping subdirectories left the hash covering `project.json` alone,
- * so the nested `images/…/info.json` that the byte-identity test deliberately seeds — standing in
- * for the pyramid a real Project is mostly made of — was silently never checked.
- */
-async function hashProject(page: Page, directory: string): Promise<Record<string, string>> {
-	return page.evaluate(async (directory) => {
-		const hex = (digest: ArrayBuffer) =>
-			[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+const topLevelNames = (page: Page) =>
+	page.evaluate(async () => {
+		const names: string[] = [];
+		for await (const name of (await workspaceRoot()).keys()) names.push(name);
+		return names.sort();
+	});
 
-		const hashes: Record<string, string> = {};
-		const walk = async (handle: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
-			for await (const [name, entry] of handle.entries()) {
-				if (entry.kind === 'file') {
-					const bytes = await (await (entry as FileSystemFileHandle).getFile()).arrayBuffer();
-					hashes[`${prefix}${name}`] = hex(await crypto.subtle.digest('SHA-256', bytes));
-				} else {
-					await walk(entry as FileSystemDirectoryHandle, `${prefix}${name}/`);
-				}
-			}
-		};
-
-		const root = await workspaceRoot();
-		await walk(await root.getDirectoryHandle(directory), '');
-		return hashes;
-	}, directory);
-}
-
-/** The display name in `project.json` as it sits on disk. */
-/**
- * The `name` in `project.json`, read out of OPFS behind the app's back.
- *
- * Retried, because the app writes atomically — a temp file, then `move()` over the destination
- * (ADR-0017) — and a read that lands inside that window throws rather than returning stale bytes:
- * `getFileHandle` with a `NotFoundError` while the destination is momentarily gone, or `getFile()`
- * with a `NotReadableError` as it is replaced. Those are transient by construction, but they were
- * propagating out of `expect.poll`, whose retry covers a failed *assertion* and not a callback that
- * throws. That made this the flakiest test in the suite — it failed 2 of 5 runs at `--workers=1`,
- * with nothing else running.
- *
- * This is a fix to the read, not to the assertion: the bytes on disk are still what is compared, so
- * a write that never happens still fails. Only a read that collided with an atomic replace is
- * forgiven, and only for as long as one can plausibly last.
- */
-async function readProjectName(page: Page, directory = 'amsterdam-1625'): Promise<string> {
-	// The loop is `support/stored-file.ts`, which is where it lives for every helper that reads the
-	// Workspace — this was the last hand-rolled copy of it, and copies are how one of them
-	// came to be missing the retry altogether.
-	return JSON.parse(await readStoredFile(page, `${directory}/project.json`)).name as string;
-}
+const readProjectName = async (page: Page, directory = 'amsterdam-1625') =>
+	JSON.parse(await readStoredFile(page, `${directory}/project.json`)).name as string;
 
 const createProject = async (page: Page, name: string) => {
-	await page.getByRole('button', { name: 'New Project' }).click();
-	await page.getByRole('dialog', { name: 'New Project' }).getByLabel('Project name').fill(name);
-	await page.getByRole('button', { name: 'Create Project' }).click();
-	// Creating a Project opens it; what follows is on Workspace Home.
-	await expect(page.getByTestId('project-name')).toHaveText(name);
+	await openNewProject(page, name);
 	await page.getByTestId('all-projects').click();
 	await expect(page.getByRole('link', { name })).toBeVisible();
 };
 
-test.describe('first contact', () => {
-	// ⚠ **The suite's visitor has been here before** (`support/test.ts`), so a spec about a first
-	// visit says so with {@link asFirstVisit} and every other spec keeps meeting Workspace Home.
+const fillNewProject = async (page: Page, name: string) => {
+	await page.getByRole('button', { name: 'New Project' }).click();
+	await page.getByRole('dialog', { name: 'New Project' }).getByLabel('Project name').fill(name);
+	await page.getByRole('button', { name: 'Create Project' }).click();
+};
 
+test.describe('first contact', () => {
 	test('lands a first-time visitor in a Project, not on an empty Workspace Home', async ({
 		page
 	}) => {
@@ -187,92 +91,55 @@ test.describe('first contact', () => {
 		await asFirstVisit(page);
 		await page.reload();
 
-		// The Project screen, addressed the way every Project is (ADR-0008) — and named by
-		// `Workspace.createProject`'s own default rather than by anything the route invented.
 		await expect(page.getByTestId('project-name')).toHaveText('Untitled Project');
 		expect(new URL(page.url()).searchParams.get('p')).toBe('untitled-project');
-		// One Project, really on disk: the point is a Workspace a scholar can work in, not a screen.
 		expect(await everyPath(page)).toEqual(['untitled-project/project.json']);
-		// Nothing was asked on the way (ADR-0001 as amended, ADR-0042). A dialog here would be the
-		// gate those two ADRs removed, arriving from the other side.
 		await expect(page.getByRole('dialog')).toHaveCount(0);
 	});
 
-	test('leaves a returning visitor with an empty Workspace on Workspace Home', async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
+	test('leaves a returning visitor on an empty Workspace Home, then opens the Project the New Project dialog makes', async ({
+		page
+	}) => {
+		await fresh(page);
 
-		// The regression this guards is the one a Workspace-emptiness test alone would miss: a
-		// scholar who deletes their last Project must not watch a fresh Untitled Project appear in
-		// its place. Only a genuinely first load mints one.
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 		await expect(page.getByText('No Projects yet.')).toBeVisible();
 		expect(await everyPath(page)).toEqual([]);
-	});
 
-	test('opens the Project the New Project dialog just made', async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
+		await fillNewProject(page, 'Amsterdam 1625');
 
-		await page.getByRole('button', { name: 'New Project' }).click();
-		const dialog = page.getByRole('dialog', { name: 'New Project' });
-		await dialog.getByLabel('Project name').fill('Amsterdam 1625');
-		await dialog.getByRole('button', { name: 'Create Project' }).click();
-
-		// Naming a Project is not an act of filing: the author came to work in it.
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		expect(new URL(page.url()).searchParams.get('p')).toBe('amsterdam-1625');
 	});
 });
 
 test.describe('the Project hub', () => {
-	test.beforeEach(async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
-	});
+	test.beforeEach(({ page }) => fresh(page));
 
-	test('creating a Project lists it with its name and when it was last saved', async ({ page }) => {
+	test('creating a Project writes it to OPFS as ADR-0008 specifies, lists it with when it was saved, and ?p= opens it', async ({
+		page
+	}) => {
 		await createProject(page, 'Amsterdam 1625');
 
+		expect(await everyPath(page)).toEqual(['amsterdam-1625/project.json']);
+		expect(JSON.parse(await readStoredFile(page, 'amsterdam-1625/project.json'))).toMatchObject({
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			layers: [],
+			baseMap: null
+		});
+
 		const entry = page.getByRole('listitem').filter({ hasText: 'Amsterdam 1625' });
-		// Addressed by query parameter, never by a per-Project path (ADR-0008).
 		await expect(entry.getByRole('link', { name: 'Amsterdam 1625' })).toHaveAttribute(
 			'href',
 			/\?p=amsterdam-1625$/
 		);
 		await expect(entry.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
 		await expect(entry.getByText('amsterdam-1625')).toBeVisible();
-	});
-
-	test('the Project is really in OPFS, laid out as ADR-0008 specifies', async ({ page }) => {
-		await createProject(page, 'Amsterdam 1625');
-
-		expect(Object.keys(await hashProject(page, 'amsterdam-1625'))).toEqual(['project.json']);
-		const contents = await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			const project = await root.getDirectoryHandle('amsterdam-1625');
-			const file = await project.getFileHandle('project.json');
-			return (await file.getFile()).text();
-		});
-		expect(JSON.parse(contents)).toMatchObject({
-			formatVersion: 1,
-			name: 'Amsterdam 1625',
-			layers: [],
-			baseMap: null
-		});
-	});
-
-	test('?p= opens the Project it names', async ({ page }) => {
-		await createProject(page, 'Amsterdam 1625');
 
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 
 		await expect(page).toHaveURL(/\?p=amsterdam-1625$/);
-		// The Project's own name is the Project screen's heading; the app's `<h1>` was on
-		// the page that screen replaced.
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 	});
 
@@ -285,7 +152,6 @@ test.describe('the Project hub', () => {
 		await editor.getByRole('button', { name: 'Save Changes' }).click();
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(2);
-		// Two display names, two distinct folders: identity is the folder, never the name.
 		await expect(page.locator('code', { hasText: 'amsterdam-1625' })).toBeVisible();
 		await expect(page.locator('code', { hasText: 'boston-1775' })).toBeVisible();
 	});
@@ -299,15 +165,6 @@ test.describe('the Project hub', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625', exact: true })).toBeVisible();
 	});
 
-	// ADR-0023 keeps `images/`, `alignments/`, and `base-map/` for the Workspace itself, and the
-	// refusal has to reach a screen with a message naming the reservation. It did not: the
-	// error was missing from `describeProblem`, so the hub fell through to `status = 'unreachable'` and
-	// replaced itself — and every Project in it — with "Workspace not reachable — Your Workspace could
-	// not be opened…". A scholar who typed "Images" was told their whole Workspace had gone.
-	//
-	// `bAsE mAp` is here as well as `Images` because the fold is the other half of the criterion: it is
-	// `toDirectoryName` that turns a display name into `base-map`, and a check on the raw string would
-	// pass this one straight through onto APFS, which would then hand the Project the Base Map folder.
 	for (const [displayName, folder] of [
 		['Images', 'images'],
 		['bAsE mAp', 'base-map']
@@ -317,34 +174,17 @@ test.describe('the Project hub', () => {
 		}) => {
 			await createProject(page, 'Amsterdam 1625');
 
-			await page.getByRole('button', { name: 'New Project' }).click();
-			await page
-				.getByRole('dialog', { name: 'New Project' })
-				.getByLabel('Project name')
-				.fill(displayName);
-			await page.getByRole('button', { name: 'Create Project' }).click();
+			await fillNewProject(page, displayName);
 
 			const refusal = page.getByTestId('reserved-name');
 			await expect(refusal).toBeVisible();
 			await expect(refusal).toContainText(folder);
 			await expect(refusal).toContainText('reserved');
 
-			// The Workspace is right here and still lists. Neither of these was true before.
 			await expect(page.getByText('Workspace not reachable')).toHaveCount(0);
 			await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+			expect(await topLevelNames(page)).toEqual(['amsterdam-1625']);
 
-			// And nothing was written: no reserved folder, and no Project beside the one that existed.
-			expect(
-				await page.evaluate(async () => {
-					const root = await workspaceRoot();
-					const names: string[] = [];
-					for await (const name of root.keys()) names.push(name);
-					return names.sort();
-				})
-			).toEqual(['amsterdam-1625']);
-
-			// A name that is not reserved goes through, and takes the refusal off the screen with it —
-			// an alert still complaining about a Project that now exists says the opposite of the truth.
 			await createProject(page, `${displayName} of Amsterdam`);
 			await expect(refusal).toHaveCount(0);
 		});
@@ -356,31 +196,135 @@ test.describe('the Project hub', () => {
 		await deleteProject(page);
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
-		const remaining = await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			const names: string[] = [];
-			for await (const name of root.keys()) names.push(name);
-			return names;
-		});
-		expect(remaining).toEqual([]);
+		expect(await topLevelNames(page)).toEqual([]);
+	});
+
+	test('New Project is a native <dialog> opened with showModal(), closed by Escape back to its trigger (ADR-0016)', async ({
+		page
+	}) => {
+		const trigger = page.getByRole('button', { name: 'New Project' });
+		await trigger.click();
+		const dialog = page.getByRole('dialog', { name: 'New Project' });
+		await expect(dialog).toBeVisible();
+
+		expect(
+			await page.evaluate(() => {
+				const dialog = document.querySelector('dialog[open]');
+				return {
+					tagName: dialog?.tagName ?? null,
+					isModal: dialog?.matches(':modal') ?? false,
+					holdsFocus: dialog?.contains(document.activeElement) ?? false
+				};
+			})
+		).toEqual({ tagName: 'DIALOG', isModal: true, holdsFocus: true });
+
+		await page.keyboard.press('Escape');
+
+		await expect(dialog).toBeHidden();
+		await expect(trigger).toBeFocused();
+	});
+
+	test('the keyboard alone creates, opens, and deletes a Project without a pointer', async ({
+		page
+	}) => {
+		const newProject = page.getByRole('button', { name: 'New Project' });
+		await newProject.focus();
+		await page.keyboard.press('Enter');
+		await page
+			.getByRole('dialog', { name: 'New Project' })
+			.getByLabel('Project name')
+			.fill('Keyboard Only');
+		await page.keyboard.press('Enter');
+
+		await expect(page.getByTestId('project-name')).toHaveText('Keyboard Only');
+		await page.getByTestId('all-projects').focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('link', { name: 'Keyboard Only' })).toBeVisible();
+
+		await page.getByRole('link', { name: 'Keyboard Only' }).focus();
+		for (const control of [
+			page.getByRole('button', { name: /^Open/ }),
+			page.getByRole('button', { name: /^Edit/ }),
+			page.getByRole('button', { name: /^Duplicate/ })
+		]) {
+			await page.keyboard.press('Tab');
+			await expect(control).toBeFocused();
+		}
+
+		await page.getByRole('button', { name: /^Edit/ }).focus();
+		await page.keyboard.press('Enter');
+		const editing = page.getByRole('dialog', { name: 'Edit Project' });
+		await editing.getByRole('button', { name: 'Delete Project…' }).focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('dialog', { name: 'Delete Project' })).toBeVisible();
+		await page.getByRole('button', { name: 'Delete Project', exact: true }).focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('link', { name: 'Keyboard Only' })).toHaveCount(0);
+	});
+
+	test('the save indicator transitions saved → unsaved → saving → saved as the Project name is typed (ADR-0017 rule 5)', async ({
+		page
+	}) => {
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+
+		const indicator = page.getByRole('status').getByTestId('where-your-work-is');
+		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
+
+		const saveStates = await recordSaveStates(page);
+		const field = await projectNameField(page);
+		await field.fill('Amsterdam 1626');
+
+		await expect
+			.poll(saveStates, { message: 'the save indicator should pass through unsaved and saving' })
+			.toEqual(['saved', 'unsaved', 'saving', 'saved']);
+
+		await expect(indicator).toHaveText('Saved here');
+
+		await page.reload();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1626');
+	});
+
+	test('opening a Project, tabbing and clicking through its name field, and closing it writes nothing (ADR-0010)', async ({
+		page
+	}) => {
+		await createProject(page, 'Amsterdam 1625');
+		await seedFile(
+			page,
+			'amsterdam-1625/annotations/l-notes.geojson',
+			'{"type":"FeatureCollection","features":[]}'
+		);
+		const before = await hashesUnder(page, '', 'amsterdam-1625');
+		expect(before.map((line) => line.split(' ')[0])).toEqual([
+			'annotations/l-notes.geojson',
+			'project.json'
+		]);
+
+		await page.goto('./?p=amsterdam-1625');
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		const dialog = await openProjectSettings(page);
+		const field = dialog.getByLabel('Project name');
+		await expect(field).toBeVisible();
+
+		await field.focus();
+		await expect(field).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(field).not.toBeFocused();
+
+		await field.click();
+		await dialog.getByRole('heading', { name: 'Project settings' }).click();
+		await expect(field).not.toBeFocused();
+
+		await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+		await page.waitForTimeout(600);
+		expect(await hashesUnder(page, '', 'amsterdam-1625')).toEqual(before);
+
+		await page.goto('./');
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		expect(await hashesUnder(page, '', 'amsterdam-1625')).toEqual(before);
 	});
 });
 
-/**
- * The Workspace's Map Images, on the hub.
- *
- * Everything asserted here is a browser behaviour the core suite cannot see: the list reaching a
- * screen, the refusal reaching a screen instead of a dialog, `<dialog>`'s Escape and focus
- * restoration on the confirmation, and the whole of it working from the keyboard. What the *files*
- * do — which are deleted, which survive a refusal, what the used-by walk reads — is
- * `packages/core/src/project/map-images.test.ts`.
- *
- * **What each card *says* about a map** — the size and file count, where the tiles are, and the
- * used-by sentence in each of its shapes including ADR-0010's — is composed by `ProjectHub` from a
- * `WorkspaceMapImage` record and nothing else, and is asserted against the component in
- * `apps/editor/src/lib/components/project-hub.dom.test.ts`. What stays here is the wiring: that
- * those records are the Workspace's own.
- */
 test.describe('the Workspace’s Map Images', () => {
 	const manifest = (label: string) => JSON.stringify({ label: { none: [label] } });
 	const projectWith = (name: string, imageIds: readonly string[]) =>
@@ -399,28 +343,32 @@ test.describe('the Workspace’s Map Images', () => {
 			}))
 		});
 
-	/** Three maps: one two Projects share, one only Amsterdam draws, and one nothing draws. */
-	const seedWorkspace = async (page: Page) => {
+	const seedImage = async (page: Page, imageId: string, label: string) => {
+		await seedFile(
+			page,
+			`images/${imageId}/info.json`,
+			`{"id":"https://unset.invalid/${imageId}"}`
+		);
+		await seedFile(page, `images/${imageId}/manifest.json`, manifest(label));
+		await seedFile(page, `images/${imageId}/0,0,256,256/256,256/0/default.jpg`, 'x'.repeat(50_000));
+	};
+
+	const entry = (page: Page, label: string) =>
+		page.getByTestId('map-image').filter({ hasText: label });
+	const deleteButton = (page: Page, label: string) =>
+		entry(page, label).getByRole('button', { name: /^Delete/ });
+
+	test.beforeEach(async ({ page }) => {
+		await page.goto('./');
+		await emptyWorkspace(page);
 		for (const [imageId, label] of [
 			['shared', 'Blaeu’s plan of Amsterdam'],
 			['solo', 'Bonner’s Boston'],
 			['orphan', 'A map nobody kept']
 		] as const) {
-			await seedFile(
-				page,
-				`images/${imageId}/info.json`,
-				`{"id":"https://unset.invalid/${imageId}"}`
-			);
-			await seedFile(page, `images/${imageId}/manifest.json`, manifest(label));
-			await seedFile(
-				page,
-				`images/${imageId}/0,0,256,256/256,256/0/default.jpg`,
-				'x'.repeat(50_000)
-			);
-			// alignment-write-is-the-fixture: the Map Images this spec lists and deletes, seeded rather than added through the UI
+			await seedImage(page, imageId, label);
 			await seedFile(page, `alignments/${imageId}.json`, '{}');
 		}
-		// A fourth whose tiles are on a Library's server: a `remote.json` and no `info.json`.
 		await seedFile(
 			page,
 			'images/remote-one/remote.json',
@@ -431,58 +379,71 @@ test.describe('the Workspace’s Map Images', () => {
 				height: 3000
 			})
 		);
-		await seedProject(page, 'amsterdam-1625', projectWith('Amsterdam 1625', ['shared', 'solo']));
-		await seedProject(page, 'boston-1775', projectWith('Boston 1775', ['shared']));
-	};
-
-	const entry = (page: Page, label: string) =>
-		page.getByTestId('map-image').filter({ hasText: label });
-
-	test.beforeEach(async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await seedWorkspace(page);
+		await seedFile(
+			page,
+			'amsterdam-1625/project.json',
+			projectWith('Amsterdam 1625', ['shared', 'solo'])
+		);
+		await seedFile(page, 'boston-1775/project.json', projectWith('Boston 1775', ['shared']));
 		await page.reload();
 		await expect(page.getByTestId('map-image')).toHaveCount(4);
 	});
 
-	/**
-	 * That the list on screen is the Workspace's own maps, read from what is really on the disk.
-	 *
-	 * ⚠ **This is a wiring test and it is deliberately one sentence per fact.** The *matrix* — the
-	 * singular "1 file", the unnamed Library, the used-by sentence in each of its five shapes, the
-	 * reclaim clause and its absence — is `apps/editor/src/lib/components/project-hub.dom.test.ts`,
-	 * where it costs milliseconds and cannot pass vacuously because the records are the test's.
-	 * What only a browser can answer is what this asserts: that the hub walks `images/`, weighs it
-	 * through the store, reads the Projects' own documents for used-by, and puts the answers on a
-	 * screen. Each line below is a different join — the pyramid's bytes and file count, a
-	 * `remote.json` naming its Library, and a used-by walk over two Projects — so a component that
-	 * renders perfectly against props it is never given still fails here.
-	 */
-	test('lists the Workspace’s own Map Images, weighed and attributed from what is on disk', async ({
+	test('lists Map Images weighed and attributed from disk, confirms in a modal closable by Escape, and deletes an unused one with its remote.json and Alignment', async ({
 		page
 	}) => {
-		// Four files of seeded pyramid, weighed by the store rather than by the list.
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('50 kB in 4 files');
-		// The Library comes out of the map's own `remote.json`, which nothing but a real read supplies.
 		await expect(entry(page, 'Plan de Paris')).toContainText('Tiles on iiif.bnf.example');
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('Tiles in this Workspace');
-		// And used-by is the walk over both Projects' `project.json`, in directory order.
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText(
 			'Projects that use this image: Amsterdam 1625, Boston 1775.'
 		);
 		await expect(entry(page, 'A map nobody kept')).toContainText(
 			'Projects that use this image: None.'
 		);
+		const total = page.getByTestId('map-images-total');
+		await expect(total).toContainText('4');
+		await expect(total).toContainText('(3 local, 1 IIIF external)');
+		await expect(page.getByTestId('map-images-size')).toHaveText('150 kB');
+
+		const trigger = deleteButton(page, 'A map nobody kept');
+		await trigger.click();
+		const dialog = page.getByRole('dialog', { name: 'Delete Map Image' });
+		await expect(dialog).toBeVisible();
+		await expect(dialog).toContainText('A map nobody kept');
+		await expect(dialog).toContainText('50 kB');
+		expect(
+			await page.evaluate(() => document.querySelector('dialog[open]')?.matches(':modal') ?? false)
+		).toBe(true);
+
+		await page.keyboard.press('Escape');
+
+		await expect(dialog).toBeHidden();
+		await expect(trigger).toBeFocused();
+		await expect(page.getByTestId('map-image')).toHaveCount(4);
+
+		await trigger.click();
+		await page.getByRole('button', { name: 'Delete Map Image' }).click();
+
+		await expect(page.getByTestId('map-image')).toHaveCount(3);
+		await expect(total).toContainText('3');
+		await expect(total).toContainText('(2 local, 1 IIIF external)');
+		await expect(page.getByTestId('map-images-size')).toHaveText('100 kB');
+		const announcement = page.getByTestId('map-image-status');
+		await expect(announcement).toHaveAttribute('aria-live', 'polite');
+		await expect(announcement).toContainText('Deleted A map nobody kept, reclaiming 50 kB');
+
+		const remaining = await everyPath(page);
+		expect(remaining.filter((path) => path.startsWith('images/orphan/'))).toEqual([]);
+		expect(remaining).not.toContain('alignments/orphan.json');
+		expect(remaining).toContain('alignments/shared.json');
+		expect(remaining).toContain('images/shared/info.json');
+		expect(remaining).toContain('amsterdam-1625/project.json');
 	});
 
 	test('deleting a Project keeps the Workspace’s Map Images, and the dialog says so', async ({
 		page
 	}) => {
-		// The Delete Project dialog used to say "Its Map Images, Alignments, and Annotations go
-		// with it", a few sections above a list stating the opposite. ADR-0023 made it false — a pyramid
-		// and its Alignment belong to the **Workspace** and are shared — so this is the wording catching
-		// up with the behaviour, which is unchanged and asserted below rather than described.
 		const editor = await openProjectEditor(page, 'Boston 1775');
 		await editor.getByRole('button', { name: 'Delete Project…' }).click();
 
@@ -492,7 +453,6 @@ test.describe('the Workspace’s Map Images', () => {
 		await page.getByRole('button', { name: 'Delete Project', exact: true }).click();
 
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
-		// The shared map is still there, still listed, and now drawn by one Project instead of two.
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText(
 			'Projects that use this image: Amsterdam 1625.'
 		);
@@ -506,11 +466,7 @@ test.describe('the Workspace’s Map Images', () => {
 	}) => {
 		const before = await everyPath(page);
 
-		await entry(page, 'Blaeu’s plan of Amsterdam')
-			.getByRole('button', { name: /^Delete/ })
-			.click();
-		// The confirmation says what the list believes, and then the Workspace decides. The dialog is
-		// not skipped for a map the list calls in-use: see the stale-list test below for why.
+		await deleteButton(page, 'Blaeu’s plan of Amsterdam').click();
 		await expect(page.getByTestId('delete-map-consequence')).toContainText(
 			'deleting it will be refused'
 		);
@@ -519,40 +475,24 @@ test.describe('the Workspace’s Map Images', () => {
 		const refusal = page.getByTestId('map-image-refused');
 		await expect(refusal).toContainText('Amsterdam 1625');
 		await expect(refusal).toContainText('Boston 1775');
-		// The claim that must not pass vacuously: the tiles are still on the disk, not merely that a
-		// sentence appeared. A refusal that had deleted first would satisfy every assertion above it.
 		expect(await everyPath(page)).toEqual(before);
 	});
 
 	test('confirms before deleting even when the list is a moment out of date', async ({ page }) => {
-		// The regression this covers: the hub used to send a map its list called in-use straight to core
-		// with no dialog, on the assumption core would refuse. When the list had gone stale — the last
-		// Project drawing that map deleted in another tab, or by a colleague's sync — core did not
-		// refuse, and one click destroyed a pyramid with no confirmation at all. The confirmation was
-		// skipped in exactly the case where it was the only thing standing there.
 		await expect(entry(page, 'Bonner’s Boston')).toContainText(
 			'Projects that use this image: Amsterdam 1625.'
 		);
 
-		// Behind the app's back, so what is on screen is genuinely stale rather than merely re-rendered.
-		await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			await root.removeEntry('amsterdam-1625', { recursive: true });
-		});
+		await page.evaluate(async () =>
+			(await workspaceRoot()).removeEntry('amsterdam-1625', { recursive: true })
+		);
 		const before = await everyPath(page);
 
-		await entry(page, 'Bonner’s Boston')
-			.getByRole('button', { name: /^Delete/ })
-			.click();
+		await deleteButton(page, 'Bonner’s Boston').click();
 
-		// A dialog, not a deletion. The old code reached `deleteMapImage` here and the pyramid was
-		// gone before this line ran.
-		const dialog = page.getByRole('dialog', { name: 'Delete Map Image' });
-		await expect(dialog).toBeVisible();
+		await expect(page.getByRole('dialog', { name: 'Delete Map Image' })).toBeVisible();
 		expect(await everyPath(page)).toEqual(before);
 
-		// And confirming does delete it, because the decision is core's and taken from the Projects'
-		// documents now rather than from the list.
 		await page.getByRole('button', { name: 'Delete Map Image' }).click();
 		await expect(entry(page, 'Bonner’s Boston')).toHaveCount(0);
 		expect((await everyPath(page)).filter((path) => path.startsWith('images/solo/'))).toEqual([]);
@@ -561,22 +501,15 @@ test.describe('the Workspace’s Map Images', () => {
 	test('will not call a map unused, or delete it, because a Project is from a newer version', async ({
 		page
 	}) => {
-		// ADR-0010 refuses to open a `formatVersion: 2` Project *because it is intact* — its Layer stack
-		// is right there and certainly names Map Images. Reading that refusal as "this Project uses
-		// nothing" is how a scholar is offered a delete button for a map their next release still draws,
-		// on the same screen that has just told them the Project cannot be opened.
 		await emptyWorkspace(page);
-		await seedFile(page, 'images/orphan/info.json', '{"id":"https://unset.invalid/orphan"}');
-		await seedFile(page, 'images/orphan/manifest.json', manifest('A map nobody kept'));
-		await seedFile(page, 'images/orphan/0,0,256,256/256,256/0/default.jpg', 'x'.repeat(50_000));
-		await seedProject(
+		await seedImage(page, 'orphan', 'A map nobody kept');
+		await seedFile(
 			page,
-			'from-the-future',
+			'from-the-future/project.json',
 			'{"formatVersion":2,"name":"Tomorrow","layers":[{"kind":"something-new"}],"baseMap":null}'
 		);
 		await page.reload();
 
-		// Both facts on one screen, agreeing with each other.
 		await expect(
 			page.getByText('Made with a newer version of Ballastella.', { exact: true })
 		).toBeVisible();
@@ -586,73 +519,11 @@ test.describe('the Workspace’s Map Images', () => {
 		await expect(entry(page, 'A map nobody kept')).toContainText('from-the-future');
 
 		const before = await everyPath(page);
-		await entry(page, 'A map nobody kept')
-			.getByRole('button', { name: /^Delete/ })
-			.click();
+		await deleteButton(page, 'A map nobody kept').click();
 		await page.getByRole('button', { name: 'Delete Map Image' }).click();
 
 		await expect(page.getByTestId('map-image-refused')).toContainText('from-the-future');
-		// Not merely that a sentence appeared: the pyramid is untouched.
 		expect(await everyPath(page)).toEqual(before);
-	});
-
-	test('deletes a map no Project uses, with its remote.json and its Alignment, and the heading facts drop', async ({
-		page
-	}) => {
-		const total = page.getByTestId('map-images-total');
-		// Three pyramids of 50 kB and one referenced map, whose `remote.json` is a few hundred bytes.
-		await expect(total).toContainText('4');
-		await expect(total).toContainText('(3 local, 1 IIIF external)');
-		await expect(page.getByTestId('map-images-size')).toHaveText('150 kB');
-
-		await entry(page, 'A map nobody kept')
-			.getByRole('button', { name: /^Delete/ })
-			.click();
-		await page.getByRole('button', { name: 'Delete Map Image' }).click();
-
-		await expect(page.getByTestId('map-image')).toHaveCount(3);
-		await expect(total).toContainText('3');
-		await expect(total).toContainText('(2 local, 1 IIIF external)');
-		await expect(page.getByTestId('map-images-size')).toHaveText('100 kB');
-		// Announced, not merely rendered — so the region's own `aria-live` is asserted
-		// beside its text. Without that this claim sat on a `data-testid` and was vacuous: a `<p>` with
-		// the live attribute stripped would have passed it while announcing nothing. `aria-live` rather
-		// than `role="status"` because the transfer line above already owns that role on this page.
-		const announcement = page.getByTestId('map-image-status');
-		await expect(announcement).toHaveAttribute('aria-live', 'polite');
-		await expect(announcement).toContainText('Deleted A map nobody kept, reclaiming 50 kB');
-
-		const remaining = await everyPath(page);
-		expect(remaining.filter((path) => path.startsWith('images/orphan/'))).toEqual([]);
-		expect(remaining).not.toContain('alignments/orphan.json');
-		// And nothing else went with it.
-		expect(remaining).toContain('alignments/shared.json');
-		expect(remaining).toContain('images/shared/info.json');
-		expect(remaining).toContain('amsterdam-1625/project.json');
-	});
-
-	test('confirms through a <dialog> opened with showModal(), closable by Escape', async ({
-		page
-	}) => {
-		const trigger = entry(page, 'A map nobody kept').getByRole('button', { name: /^Delete/ });
-		await trigger.click();
-
-		const dialog = page.getByRole('dialog', { name: 'Delete Map Image' });
-		await expect(dialog).toBeVisible();
-		// It names the map and what deleting it reclaims, because it cannot be undone.
-		await expect(dialog).toContainText('A map nobody kept');
-		await expect(dialog).toContainText('50 kB');
-		// `:modal` matches only a dialog opened by `showModal()` (ADR-0016).
-		expect(
-			await page.evaluate(() => document.querySelector('dialog[open]')?.matches(':modal') ?? false)
-		).toBe(true);
-
-		await page.keyboard.press('Escape');
-
-		await expect(dialog).toBeHidden();
-		await expect(trigger).toBeFocused();
-		// Escape cancelled rather than confirmed.
-		await expect(page.getByTestId('map-image')).toHaveCount(4);
 	});
 
 	test('a Workspace with no Map Images says so', async ({ page }) => {
@@ -664,336 +535,69 @@ test.describe('the Workspace’s Map Images', () => {
 	});
 });
 
-test.describe('dialogs (ADR-0016)', () => {
-	test.beforeEach(async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
-	});
-
-	test('Escape closes the dialog and focus returns to the button that opened it', async ({
-		page
-	}) => {
-		const trigger = page.getByRole('button', { name: 'New Project' });
-		await trigger.click();
-		const dialog = page.getByRole('dialog', { name: 'New Project' });
-		await expect(dialog).toBeVisible();
-
-		await page.keyboard.press('Escape');
-
-		await expect(dialog).toBeHidden();
-		await expect(trigger).toBeFocused();
-	});
-
-	test('is a native <dialog> opened with showModal(), not one of the banned methods', async ({
-		page
-	}) => {
-		await page.getByRole('button', { name: 'New Project' }).click();
-
-		// `:modal` matches only a dialog opened by `showModal()`, so this rules out the
-		// checkbox-hack and anchor/hash modals ADR-0016 bans — neither of which handles Escape.
-		expect(
-			await page.evaluate(() => {
-				const dialog = document.querySelector('dialog[open]');
-				return {
-					tagName: dialog?.tagName ?? null,
-					isModal: dialog?.matches(':modal') ?? false,
-					holdsFocus: dialog?.contains(document.activeElement) ?? false
-				};
-			})
-		).toEqual({ tagName: 'DIALOG', isModal: true, holdsFocus: true });
-	});
-});
-
-test.describe('the keyboard alone', () => {
-	test.beforeEach(async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
-	});
-
-	test('creates, opens, and deletes a Project without a pointer', async ({ page }) => {
-		const newProject = page.getByRole('button', { name: 'New Project' });
-		await newProject.focus();
-		await page.keyboard.press('Enter');
-		await page
-			.getByRole('dialog', { name: 'New Project' })
-			.getByLabel('Project name')
-			.fill('Keyboard Only');
-		await page.keyboard.press('Enter');
-
-		// Enter in the name field creates the Project *and opens it*, so "opens" costs no press of
-		// its own. The way back to the list is the breadcrumb, which is why it is reached by
-		// focusing and pressing rather than by a `goto`: this test's whole subject is that every
-		// step of the round trip is on the keyboard.
-		await expect(page.getByTestId('project-name')).toHaveText('Keyboard Only');
-		await page.getByTestId('all-projects').focus();
-		await page.keyboard.press('Enter');
-		await expect(page.getByRole('link', { name: 'Keyboard Only' })).toBeVisible();
-
-		// Every action on the row is reachable by tabbing forward from the heading link.
-		await page.getByRole('link', { name: 'Keyboard Only' }).focus();
-		for (const control of [
-			page.getByRole('button', { name: /^Open/ }),
-			page.getByRole('button', { name: /^Edit/ }),
-			page.getByRole('button', { name: /^Duplicate/ })
-		]) {
-			await page.keyboard.press('Tab');
-			await expect(control).toBeFocused();
-		}
-
-		// And deleting it, which is now two dialogs deep, is reachable the same way.
-		await page.getByRole('button', { name: /^Edit/ }).focus();
-		await page.keyboard.press('Enter');
-		const editing = page.getByRole('dialog', { name: 'Edit Project' });
-		await editing.getByRole('button', { name: 'Delete Project…' }).focus();
-		await page.keyboard.press('Enter');
-		await expect(page.getByRole('dialog', { name: 'Delete Project' })).toBeVisible();
-		await page.getByRole('button', { name: 'Delete Project', exact: true }).focus();
-		await page.keyboard.press('Enter');
-		await expect(page.getByRole('link', { name: 'Keyboard Only' })).toHaveCount(0);
-	});
-});
-
-test.describe('the save indicator (ADR-0017 rule 5)', () => {
-	test.beforeEach(async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
-	});
-
-	// Named for the sequence the indicator *actually* announces, which has four steps and not three.
-	// `unsaved` is the debounce window — ADR-0017 rule 2's 400 ms, during which the edit is in memory
-	// and the tool is saying so — and it is one of rule 5's three states, not an implementation
-	// detail. The old title said `saved → saving → saved` while the old assertions never looked at the
-	// third state at all.
-	test('transitions saved → unsaved → saving → saved as the Project name is typed', async ({
-		page
-	}) => {
-		await createProject(page, 'Amsterdam 1625');
-		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-
-		// By role, because being announced is the claim (ADR-0017 rule 5): a `[data-save-state]` locator
-		// goes on passing with the live region deleted. One `role="status"` per page is the convention
-		// this repo keeps for exactly that reason — every other announcement on a page that has a save
-		// indicator is an `aria-live="polite"` region, and the indicator is on the navigation bar and
-		// therefore on every page.
-		const indicator = page.getByRole('status').getByTestId('where-your-work-is');
-		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
-
-		// **Recorded, not polled**. This used to assert the middle of the sequence by
-		// asking twice: `toHaveAttribute('saving')` and then `toHaveAttribute('saved')`. "Saving…" can
-		// be over in a few milliseconds — it is an OPFS write of a small document — and two protocol
-		// round trips can straddle it entirely, so the first assertion failed with
-		// `Expected "saving", Received "saved"` in 2 of the 10 baseline runs of 2026-08-07 and told
-		// nobody anything in the other 8. A poll cannot observe a transient state; a `MutationObserver`
-		// sees every change, so what is asserted below is a record of what the indicator actually did.
-		const saveStates = await recordSaveStates(page);
-
-		// Renaming is in the Project settings dialog, opened from the breadcrumb edit button. The autosave
-		// rules it follows are unchanged, which is what this asserts.
-		const field = await projectNameField(page);
-		await field.fill('Amsterdam 1626');
-
-		// ─────────────────────────────────────────────────────────────────────────────────────────
-		// **THE WHOLE SEQUENCE, EXACTLY, AND POLLED FOR — NOT READ ONCE.**
-		//
-		// Every step is a claim: the edit was held unsaved for the debounce window and the user was
-		// told so, the write then happened and the user was told that too, and it finished. An
-		// indicator that jumped straight back to "Saved" — a broken 400 ms dwell, or a missing
-		// `unsaved` state — fails here.
-		//
-		// ⚠ `expect.poll`, because reading the record once is the *same* mistake this test was fixed
-		// for, one level up. The obvious guard — wait for `data-save-state` to be `saved`, then read —
-		// is satisfied by the `saved` the indicator is already showing *before* the edit lands, which
-		// is exactly the hazard `support/saved.ts` exists to describe. A first read winning that race
-		// returns `['saved']`, and `toEqual` on a single read would have gone green having observed
-		// nothing at all. Found by review; it is the vacuous-pass shape this suite keeps producing.
-		await expect
-			.poll(saveStates, { message: 'the save indicator should pass through unsaved and saving' })
-			.toEqual(['saved', 'unsaved', 'saving', 'saved']);
-
-		// And it is what a screen reader is given, not only what the attribute says.
-		await expect(indicator).toHaveText('Saved here');
-
-		// And the store really has it: reloading shows the new name.
-		await page.reload();
-		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1626');
-	});
-});
-
-// ═════════════════════════════════════════════════════════════════════════════════════════════
-// ⚠ WHAT THIS DESCRIBE PROVES, AND WHAT IT DOES NOT — MEASURED 2026-08-07
-//
-// It proves the listener is installed on the real `window` and that `Autosave.flush` puts the
-// pending bytes on disk. It does **not** prove that a scholar's edit survives leaving the page,
-// and the difference is not a nuance: it is measured, and it is total.
-//
-//   a debounced Project rename, then `page.reload()` inside the window   →  LOST 8 of 8
-//   the same edit, `pagehide` dispatched with no navigation              →  written in 32 ms
-//   a synchronous `localStorage.setItem` in a `pagehide` listener        →  survived 5 of 5
-//
-// So `pagehide` **does** fire on a real navigation, and the flush is fast, and it is lost anyway:
-// the store write is asynchronous, and a document being unloaded does not run the continuation.
-// Rule 3 is not a race that is usually lost. For a real navigation it is never won.
-//
-// The third line is the one that matters for whoever fixes this: something synchronous inside the
-// same handler *does* survive, so a write-ahead journal is a real option rather than a hope. It is
-// also an ADR-0017 decision and an ADR-0001 one — it puts user bytes somewhere that is not the
-// ProjectStore — so it was reported rather than guessed at.
-//
-// ✅ **FIXED**, and the fix is asserted against a genuine navigation in
-// `surviving a real navigation (ADR-0017 rule 3, as amended)` below. ADR-0017 rule 3 now reads
-// "capture synchronously, then flush", the journal is `packages/core/src/autosave/journal.ts`, and
-// the replay is `replay.ts`. This describe is kept, unchanged, because what it proves is still worth
-// proving separately — that the listeners are on the real `window` and that `flush` works — and
-// because it is the specimen for why a dispatched event is the weaker claim.
-//
-// Do not read the test below as covering the user's case. It is deliberately dispatched rather
-// than provoked, and it is the strongest claim this seam can make.
-// ═════════════════════════════════════════════════════════════════════════════════════════════
-test.describe('flushing on hide (ADR-0017 rule 3)', () => {
-	/**
-	 * Hold back the app's own debounce, so that only a flush can put bytes on disk.
-	 *
-	 * This is what makes the test below about rule 3 rather than about rule 2. Rule 3 is the write
-	 * the timer has *not yet reached* — the closed laptop — and the app's window is 400 ms while
-	 * `expect.poll` waits five seconds, so with the timer live it fired well inside the poll and the
-	 * assertion passed with `installFlushOnHide` deleted altogether. Verified both ways.
-	 *
-	 * Swallowing long timers rather than freezing the clock: Playwright's `clock` also replaces
-	 * `Date` and `performance`, and a frozen clock stopped the flush from completing at all. Only
-	 * timers at or beyond the debounce are dropped, and the save indicator's own 400 ms dwell goes
-	 * with them — which is why this describe asserts files rather than the indicator.
-	 */
-	const holdBackTheDebounce = (page: Page) =>
-		page.addInitScript(() => {
-			const real = window.setTimeout;
-			window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) =>
-				typeof delay === 'number' && delay >= 400
-					? 0
-					: real(handler as never, delay, ...args)) as typeof window.setTimeout;
-		});
-
+test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () => {
 	test.beforeEach(async ({ page }) => {
 		await holdBackTheDebounce(page);
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
+		await fresh(page);
 	});
 
-	// The `visibilitychange` half of rule 3 is asserted at the core seam instead
-	// (`autosave.test.ts`), where the visibility state can be set. Chromium exposes no way for a
-	// test to make a page genuinely hidden, and shadowing `document.visibilityState` from inside the
-	// page does not take — so an e2e version would assert the shadowing, not the app.
-	test('pagehide flushes a write that is still inside its debounce window', async ({ page }) => {
+	const openProject = async (page: Page) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
-		// Wait for the view to settle before typing. The screen appears as soon as the Project has been
-		// read, but opening is driven by an effect over the URL that can run again, and a keystroke
-		// landing while it is re-reading is dropped — see the note on `EditorSession.open`. An idle
-		// indicator means nothing is in flight, so this test is about rule 3 and not about that race.
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
+		return projectNameField(page);
+	};
 
-		const field = await projectNameField(page);
-		await field.fill('Half a keystroke ago');
-		// Still only in memory: the debounce window cannot close, so nothing has been written yet.
+	const openAndRename = async (page: Page, typed: string) => {
+		await (await openProject(page)).fill(typed);
 		expect(await readProjectName(page)).toBe('Amsterdam 1625');
+	};
 
-		// Dispatched rather than provoked by a navigation, so the assertion is about the listener
-		// being installed on the real window and not about how fast the browser tears a page down.
+	const noteDeletion = (page: Page, updatedAt?: string) =>
+		page.evaluate(async (updatedAt) => {
+			const project = await (await workspaceRoot()).getDirectoryHandle('amsterdam-1625');
+			const manifest = JSON.parse(
+				await (await (await project.getFileHandle('project.json')).getFile()).text()
+			);
+			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
+			localStorage.setItem(
+				`ballastella.deleted.${encodeURIComponent(workspace)}/${encodeURIComponent('amsterdam-1625')}`,
+				JSON.stringify({
+					formatVersion: 1,
+					at: new Date().toISOString(),
+					was: { name: manifest.name, updatedAt: updatedAt ?? manifest.updatedAt }
+				})
+			);
+		}, updatedAt);
+
+	const journal = (page: Page, path: string, text: string) =>
+		page.evaluate(
+			([path, text]) => {
+				const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
+				localStorage.setItem(
+					`ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(path)}`,
+					JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), bytes: btoa(text) })
+				);
+			},
+			[path, text] as const
+		);
+
+	test('pagehide flushes a write that is still inside its debounce window (rule 3)', async ({
+		page
+	}) => {
+		await openAndRename(page, 'Half a keystroke ago');
+
 		await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
 
 		await expect.poll(() => readProjectName(page)).toBe('Half a keystroke ago');
 	});
-});
 
-// ═════════════════════════════════════════════════════════════════════════════════════════════
-// THE USER'S CASE, PROVOKED AND NOT DISPATCHED — TICKET 20
-//
-// This is the regression test for the measurement above. Everything about it is chosen so that it
-// can only pass for the right reason:
-//
-//   * **A real `page.reload()`**, not `dispatchEvent(new PageTransitionEvent('pagehide'))`. That is
-//     the entire difference between the 8-of-8 loss and the 32 ms success, and a test that
-//     dispatches is a test that cannot see the bug.
-//   * **The debounce is held back**, so the ordinary timer can never write. Without this the app's
-//     own 400 ms window closes inside the assertion and the test passes with the fix deleted —
-//     the exact vacuous shape the describe above documents having been caught in.
-//   * **The bytes are read from OPFS**, not from the screen. A restored name that is only in memory
-//     is not a save.
-//
-// The `flush` in the `pagehide` listener is still there and may occasionally win the race in a
-// headless browser. That does not make these vacuous — every mutation below was actually run
-// against this file, and two of them came back GREEN, which is recorded here rather than tidied
-// away, because a mutation that does not go red is a finding about the tests:
-//
-//   * remove the replay from `WorkspaceStorage.start`            →  RED
-//   * remove the `recovered` gate on the `?p=` open effect       →  RED, and it found a real defect
-//                                                                   on its first run: restored on
-//                                                                   disk, stale on screen, one
-//                                                                   keystroke from being overwritten
-//   * remove `journal.forgetUnder` from `deleteProject`          →  RED, but only against the fifth
-//                                                                   test. Against the fourth it was
-//                                                                   GREEN, because replay's own
-//                                                                   precondition already covers a
-//                                                                   Project that is simply gone; the
-//                                                                   fifth test exists because of that
-//                                                                   green, and says so itself.
-//   * remove the journal write from `Autosave.queue`             →  GREEN — `capture()` on `pagehide`
-//                                                                   picks the same bytes up.
-//   * remove `autosave.capture()` from the `pagehide` listener   →  GREEN — `queue` had already
-//                                                                   journalled them.
-//
-// The last two are a genuine redundancy rather than a gap: either half alone carries this case, so
-// no e2e mutation of one can be red. Each is pinned separately in `journal.test.ts` — `queue` by
-// "has the bytes on disk before the debounce has run at all", and `capture` by the one case only it
-// can serve, a quota that was full at the edit and has room by the time the page goes away.
-//
-// The reasoning behind the write-ahead journal itself — what it is, and the four things it is
-// deliberately not — is ADR-0001's "The one exception, and its exact size", with the measurement
-// that made it necessary in ADR-0017's amended rule 3.
-// ═════════════════════════════════════════════════════════════════════════════════════════════
-test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () => {
-	/** The same shim the describe above documents: only a flush or a capture can write. */
-	const holdBackTheDebounce = (page: Page) =>
-		page.addInitScript(() => {
-			const real = window.setTimeout;
-			window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) =>
-				typeof delay === 'number' && delay >= 400
-					? 0
-					: real(handler as never, delay, ...args)) as typeof window.setTimeout;
-		});
-
-	test.beforeEach(async ({ page }) => {
-		await holdBackTheDebounce(page);
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await forgetEveryRecord(page);
-		await page.reload();
-	});
-
-	const openAndRename = async (page: Page, typed: string) => {
-		await createProject(page, 'Amsterdam 1625');
-		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
-		// An idle indicator means nothing is in flight, so what follows is about rule 3 and not about
-		// a keystroke landing while the Project is being re-read. Same reasoning as above.
-		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
-
-		const field = await projectNameField(page);
-		await field.fill(typed);
-		// Still only in memory: the debounce window cannot close, so nothing has been written.
-		expect(await readProjectName(page)).toBe('Amsterdam 1625');
-	};
-
-	test('a debounced rename survives reloading the page inside the debounce window', async ({
+	test('a debounced rename survives a reload inside the debounce window, says so to a screen reader, and leaves the screen usable', async ({
 		page
 	}) => {
 		await openAndRename(page, 'Amsterdam 1626');
 
-		// The real thing. Not a dispatched event.
 		await page.reload();
 
 		await expect
@@ -1001,78 +605,25 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 				message: 'the rename should be in OPFS after a real reload, not only on screen'
 			})
 			.toBe('Amsterdam 1626');
-		// And the screen the reload landed on shows it, so the recovery is not only on disk.
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1626');
-	});
 
-	test('says that it put the change back, in text a screen reader is given', async ({ page }) => {
-		await openAndRename(page, 'Amsterdam 1627');
-
-		await page.reload();
-
-		// Visible text, not a tooltip, and inside the `aria-live` region that was already mounted, so it
-		// is announced rather than silently inserted.
 		const notice = page.getByTestId('recovered-edits');
 		await expect(notice).toBeVisible();
 		await expect(notice).toContainText('amsterdam-1625/project.json');
 		await expect(page.getByTestId('recovered-region')).toHaveAttribute('aria-live', 'polite');
 
-		// And it goes when the user says so, not on a timer.
+		const addDialog = await openAddMapImage(page);
+		await expect(notice).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(addDialog).toBeHidden();
+
 		await page.getByTestId('recovered-dismiss').click();
 		await expect(notice).toBeHidden();
-
-		// ⚠ **And focus lands somewhere, which it did not.** "Got it" removes the `<section>` that
-		// contains it, so a keyboard or screen-reader user had the focused element deleted from under
-		// them and landed on `<body>` — back at the top of the document, with the next Tab starting
-		// from the beginning of the page. It has been load-bearing since this panel became the only
-		// surface a folder Workspace's deletions are ever reported on.
 		expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('MAIN');
 	});
 
-	/**
-	 * ⚠ **The notice never expires, so anything it covers it covers indefinitely**.
-	 *
-	 * It stays up until "Got it" is pressed, and a startup recovery is a thing the author has not
-	 * read yet and must not be hurried through. A fixed card in the bottom-left corner is therefore
-	 * the one place it may not be: that is exactly where the Project screen's pinned "Map Image" and
-	 * "Annotation Layer" pair sits, which is the only way of adding to a Project.
-	 *
-	 * This is a claim about layout and hit-testing between two regions of one page: no component seam
-	 * can see it, because nothing below a real browser lays either of them out. It is asserted by
-	 * doing what the person would do — pressing the button while the notice is showing — rather than
-	 * by measuring two bounding boxes, which is a version of the assertion that passes for a card
-	 * that has merely moved somewhere else it does not belong.
-	 */
-	test('leaves the Project screen usable while it is showing', async ({ page }) => {
-		await openAndRename(page, 'Amsterdam 1628');
-
-		await page.reload();
-
-		const notice = page.getByTestId('recovered-edits');
-		await expect(notice).toBeVisible();
-
-		await openAddMapImage(page);
-		// And the news is still there afterwards: the way to reach the sidebar is not to get rid of it.
-		await expect(notice).toBeVisible();
-	});
-
-	/**
-	 * ⚠ **This is a re-edit, not an undo.** Two `fill()`s exercise the debounce and the journal's
-	 * last-write-wins; they do not touch an Edit History at all, so nothing here is a claim about
-	 * undo, whatever the shape of the gesture suggests.
-	 *
-	 * Superseding *is* worth pinning at this seam — a journal that appended rather than replaced
-	 * would fail here. The undo claim is pinned where the mechanism actually lives, in
-	 * `journal.test.ts`'s "undoing a Step across a save", which drives a real `EditHistory` against a
-	 * store whose writes stop settling: the only state in which the journal is what carries the file.
-	 */
 	test('replays the last edit to a file, not an earlier one', async ({ page }) => {
-		await createProject(page, 'Amsterdam 1625');
-		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
-		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
-
-		const field = await projectNameField(page);
+		const field = await openProject(page);
 		await field.fill('A name typed and thought better of');
 		await field.fill('Amsterdam 1625');
 
@@ -1084,64 +635,21 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	test('does not put an edit back into a Project the user deleted', async ({ page }) => {
 		await openAndRename(page, 'Gone before it was saved');
 
-		// Back to the hub and delete it, with the rename still journalled.
 		await page.goto('./');
 		await deleteProject(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
-		// **Immediately, with the deletion still in flight** — which is the whole of what this pins,
-		// and why nothing above waits for it to render. `Workspace.deleteProject` is several awaits
-		// deep against OPFS and a document being unloaded does not run the continuation (ADR-0017,
-		// "Rule 3, amended"), so an unguarded reload caught the deletion before its *first* await had
-		// resolved, one run in five, and the Project came back.
 		await page.reload();
 
-		// The Project stays deleted, and nothing is quietly recreated under its directory name.
-		//
-		// ⚠ **The empty state first, and it is not decoration**. `toHaveCount(0)` passes
-		// against a page that has not rendered its list yet, so on a fresh reload both assertions
-		// below were satisfied by the hub simply not being there — and the run that found this defect
-		// passed both and then failed on the file list. Waiting for the sentence the hub shows when it
-		// has looked and found nothing is what makes them mean something.
 		await expect(page.getByText('No Projects yet')).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Gone before it was saved' })).toHaveCount(0);
 		expect(await everyPath(page)).toEqual([]);
 	});
 
-	/**
-	 * ⚠ **A deletion carried out at startup used to be completely silent.**
-	 *
-	 * `Workspace.finishInterruptedDeletions` answered with three lists and `EditorSession` discarded
-	 * all three. ADR-0017's standard for this exact recovery chain is explicit and repeated — *"every
-	 * replay is named to the user, so an older state coming back is visible rather than silent"* — and
-	 * the replay half honoured it while the half that **removes files from a scholar's folder** said
-	 * nothing in either direction, neither in visible text nor in an announcement.
-	 *
-	 * The record is seeded rather than provoked, because provoking it means winning the ~20% race this
-	 * whole suite is about; what is seeded is exactly the key and value `DeletedProjects.record`
-	 * writes, evidence included — a record without matching evidence is refused, which is the other
-	 * half of the same review and is pinned at the unit seam.
-	 */
 	test('says at startup which Project it finished deleting', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
-		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
-		await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			const file = await (
-				await (await root.getDirectoryHandle('amsterdam-1625')).getFileHandle('project.json')
-			).getFile();
-			const manifest = JSON.parse(await file.text());
-			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
-			localStorage.setItem(
-				`ballastella.deleted.${encodeURIComponent(workspace)}/${encodeURIComponent('amsterdam-1625')}`,
-				JSON.stringify({
-					formatVersion: 1,
-					at: new Date().toISOString(),
-					was: { name: manifest.name, updatedAt: manifest.updatedAt }
-				})
-			);
-		});
+		await noteDeletion(page);
 
 		await page.reload();
 
@@ -1150,66 +658,23 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		expect(await everyPath(page)).toEqual([]);
 	});
 
-	/**
-	 * ⚠ **The other direction, and it was rendered by no test at all.**
-	 *
-	 * A refusal is the *only* thing a startup deletion ever reports in a folder Workspace since the
-	 * identity rule, and the whole arm that renders it — `deletion-refused`, the "A deletion was not
-	 * finished" heading, and `deletionsAreNoteworthy`'s `refused` term — was reachable in no test. A
-	 * build that dropped any of them would silently throw away the one sentence standing between the
-	 * user and a Project they think is deleted and which is still on disk.
-	 *
-	 * Provoked rather than seeded on the refusal itself: the record is written by the real deletion
-	 * gesture against a store that cannot carry it out, and then the Project is renamed, which is
-	 * exactly the "reopened and edited after a failed deletion" case `#claim` cannot see.
-	 */
 	test('says at startup which deletion it would not carry out, and leaves the Project alone', async ({
 		page
 	}) => {
 		await createProject(page, 'Amsterdam 1625');
-		await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			const file = await (
-				await (await root.getDirectoryHandle('amsterdam-1625')).getFileHandle('project.json')
-			).getFile();
-			const manifest = JSON.parse(await file.text());
-			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
-			localStorage.setItem(
-				`ballastella.deleted.${encodeURIComponent(workspace)}/${encodeURIComponent('amsterdam-1625')}`,
-				JSON.stringify({
-					formatVersion: 1,
-					at: new Date().toISOString(),
-					// What the hub was showing when Delete was pressed — and the Project has moved on
-					// since, which is what the next startup has to notice.
-					was: { name: manifest.name, updatedAt: '2020-01-01T00:00:00.000Z' }
-				})
-			);
-		});
+		await noteDeletion(page, '2020-01-01T00:00:00.000Z');
 
 		await page.reload();
 
 		await expect(page.getByTestId('deletion-refused')).toContainText('Amsterdam 1625');
 		await expect(page.getByTestId('deletion-refused')).toContainText('nothing was removed');
-		// The panel says what it is, which is the arm of the heading nothing else reaches: no edit was
-		// put back, so it cannot borrow the replay's sentence.
 		await expect(page.getByTestId('recovered-edits')).toContainText('A deletion was not finished');
-		// And the Project is right there, with every byte of it.
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		expect(await everyPath(page)).toEqual(['amsterdam-1625/project.json']);
 	});
 
-	/**
-	 * ⚠ **ADR-0017 asks for two refusals and only one was rendered by a test.** A browser that answers
-	 * reads and rejects every write — Safari with cookies blocked, or a `localStorage` filled by one
-	 * enormous Annotation collection — cannot hold the deletion note, and the deletion is then only as
-	 * durable as this tab. `protectionWarning` does not stand in for it: that sentence is about an
-	 * edit on its way to storage and offers "wait for the indicator to read Saved", which a deletion
-	 * has neither of.
-	 */
 	test('says when the browser will not write a deletion down', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
-		// Reads still answer, which is the browser this actually happens on — a probe that only reads
-		// accepts this storage, and every write throws.
 		await page.evaluate(() => {
 			const setItem = Storage.prototype.setItem;
 			Storage.prototype.setItem = function (key: string, value: string) {
@@ -1223,43 +688,18 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		await expect(page.getByTestId('deletion-warning')).toContainText(
 			'would not let Ballastella write the deletion down'
 		);
-		// And the deletion itself still happened: a browser that will not hold a note must not stop a
-		// user deleting a Project.
 		await expect(page.getByText('No Projects yet')).toBeVisible();
 	});
 
 	test('does not leak a deleted Project’s file into a new one that reused its folder', async ({
 		page
 	}) => {
-		// ⚠ **The one case replay's own precondition cannot see**, and therefore the only test that
-		// pins `deleteProject`'s journal sweep down. Once a Project of the same name exists again, the
-		// directory is back and its `project.json` is there, so from replay's side an entry naming a
-		// file inside it is indistinguishable from an edit to the Project that is there now.
-		//
-		// `project.json` itself is *not* the specimen, and finding that out is what this test is for:
-		// creating the replacement Project rewrites that path, which supersedes the journalled entry
-		// and then forgets it. It is the Project's **other** files — an Annotation collection still
-		// inside its debounce window — that nothing rewrites, and they would land in a Project that
-		// has no Layer referencing them: a stray file in every size total and every backup.
-		//
-		// The entry is seeded rather than provoked, because provoking it needs an Annotation Layer and
-		// a drawn shape, which is a different test's subject. What is seeded is exactly the bytes an
-		// interrupted `writeAnnotations` leaves, at exactly the key `WriteAheadJournal` writes.
 		await createProject(page, 'Amsterdam 1625');
-		const stray = 'amsterdam-1625/annotations/stray.geojson';
-		await page.evaluate((path) => {
-			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
-			const key = `ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(path)}`;
-			localStorage.setItem(
-				key,
-				JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), bytes: btoa('{}') })
-			);
-		}, stray);
+		await journal(page, 'amsterdam-1625/annotations/stray.geojson', '{}');
 
 		await deleteProject(page);
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
-		// The same display name, so the same folder name: `amsterdam-1625`.
 		await createProject(page, 'Amsterdam 1625');
 
 		await page.reload();
@@ -1268,135 +708,52 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		expect(await everyPath(page)).toEqual(['amsterdam-1625/project.json']);
 	});
 
-	/**
-	 * ⚠ **The one assertion here that no unit seam can make.**
-	 *
-	 * `RecoveredEdits.svelte` puts a "Throw this copy away" beside a skipped row **only when its entry
-	 * was kept** — `'superseded'` and `'cannot-tell-which-is-newer'`, the two the scholar still has a
-	 * decision to make about. Rendering it on every row would offer to destroy a copy that is already
-	 * safely in the Workspace, and would do it in the one row whose whole message is "nothing needed
-	 * to be put back".
-	 *
-	 * That branch is markup, and the editor's Node project has no component seam to drive it; adding
-	 * one would be a new test seam, and CONTRIBUTING allows two and no others. So it is asserted here,
-	 * where the panel really renders. The specimen is `already-in-the-store`: an entry whose bytes the
-	 * Workspace already holds, seeded at exactly the key `WriteAheadJournal` writes — which is the
-	 * state a `forget` the browser refused leaves behind.
-	 */
 	test('offers no way to throw away a copy the Workspace already has', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
-		// Byte-identical to what `createProject` has just written, read back rather than guessed, so the
-		// replay's verdict is `already-in-the-store` and not something that merely looks like it.
 		const path = 'amsterdam-1625/project.json';
-		await page.evaluate(async (at) => {
-			const root = await navigator.storage.getDirectory();
-			const workspaceName = localStorage.getItem('ballastella.workspace') || 'My Workspace';
-			const workspace = `opfs:${workspaceName}`;
-			let directory = await root.getDirectoryHandle(workspaceName);
-			const segments = at.split('/');
-			for (const segment of segments.slice(0, -1)) {
-				directory = await directory.getDirectoryHandle(segment);
-			}
-			const file = await directory.getFileHandle(segments[segments.length - 1] as string);
-			const bytes = new Uint8Array(await (await file.getFile()).arrayBuffer());
-			let binary = '';
-			for (const byte of bytes) binary += String.fromCharCode(byte);
-			localStorage.setItem(
-				`ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(at)}`,
-				JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), bytes: btoa(binary) })
-			);
-		}, path);
+		await journal(page, path, await readStoredFile(page, path));
 
 		await page.reload();
 
 		const notice = page.getByTestId('recovered-edits');
 		await expect(notice).toBeVisible();
 		await expect(notice).toContainText('did not need to be put back');
-		// Nothing was written, so it is not announced as a restoration either.
 		await expect(page.getByTestId('recovered-restored')).toHaveCount(0);
-		// And the destructive exit is absent, because there is nothing left to decide about.
 		await expect(page.getByTestId('forget-replay-skip')).toHaveCount(0);
 	});
 
-	/**
-	 * ⚠ **The presence half, and it is what makes the absence half mean anything** (round 5, finding
-	 * F; the discipline is main's own `5f03e86`, "Ask the WebGL2 patch check a presence question, not
-	 * an absence one"). Without this, renaming the `data-testid` satisfies the test above.
-	 *
-	 * The specimen is `cannot-tell-which-is-newer`: an entry with no baseline over a file that holds
-	 * something else. Nothing is written, the copy is kept out of the live journal, and it is the one
-	 * row a scholar still has a decision to make about — so it is the one row that carries an exit.
-	 */
 	test('offers a way to throw away a copy it is still holding', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 		const path = 'amsterdam-1625/project.json';
-		await page.evaluate((at) => {
-			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
-			localStorage.setItem(
-				`ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(at)}`,
-				JSON.stringify({
-					formatVersion: 1,
-					at: new Date().toISOString(),
-					// No `held`: the undecidable row, which is what keeps a copy the scholar must resolve.
-					bytes: btoa('{"formatVersion":1,"name":"A rename that never reached the disk"}')
-				})
-			);
-		}, path);
+		await journal(page, path, '{"formatVersion":1,"name":"A rename that never reached the disk"}');
 
 		await page.reload();
 
 		const notice = page.getByTestId('recovered-edits');
 		await expect(notice).toBeVisible();
 		await expect(notice).toContainText('cannot tell whether it is newer');
-		// The exit is there, it names the file it would destroy, and pressing it ends the notice.
 		const exit = page.getByTestId('forget-replay-skip');
 		await expect(exit).toHaveCount(1);
 		await expect(exit).toHaveAccessibleName(`Throw away the kept copy of “${path}”`);
 		await exit.click();
 		await expect(page.getByTestId('recovered-skipped')).toHaveCount(0);
 
-		// And it was a copy that went, never a file: the Project is exactly where it was.
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 	});
 
-	test('does not put an edit into a different named Workspace', async ({ page }) => {
+	test('does not put an edit into a different named Workspace, and puts it back when its own is opened again', async ({
+		page
+	}) => {
 		await openAndRename(page, 'Typed in the first Workspace');
 
-		// Switch Workspace, then reload. The edit belongs to the Workspace it was typed into, and the
-		// arriving one must not be given it — the failure `#adopt` prevents for queued bytes, which a
-		// journal would otherwise reintroduce across a whole browser session.
-		//
-		// Back to the hub first: Project settings is a `<dialog>` opened with `showModal()`, so
-		// everything behind it — the bar's Workspace switcher included — is inert until it is closed.
 		await page.goto('./');
 		await createWorkspace(page, 'Teaching');
 		await expect(page.getByText('No Projects yet')).toBeVisible();
 
 		await page.reload();
 
-		// The second Workspace is empty; the rename is still waiting in the first one's journal.
 		expect(await everyPath(page)).toEqual([]);
 		await expect(page.getByTestId('recovered-edits')).toBeHidden();
-	});
-
-	test('puts the edit back when the Workspace it was typed into is opened again', async ({
-		page
-	}) => {
-		// ⚠ **The other half of the test above.** "The edit is not in the *other* Workspace" is
-		// satisfied just as well by the edit having been destroyed, which is the vacuous shape this
-		// suite keeps producing; this is the assertion that says it still exists.
-		//
-		// It does **not** pin `WorkspaceStorage.#adopt`'s `capture()` call — removing that leaves this
-		// green, measured. The reason is the same redundancy as the `pagehide` pair above: `queue`
-		// journalled these bytes when they were typed, so by the time the switch happens the entry is
-		// already on disk and `capture` re-records it. `#adopt`'s capture earns its place only in the
-		// case `capture` alone can serve — a quota that was full at the edit and has room by the
-		// switch — which is pinned in `journal.test.ts` rather than here.
-		await openAndRename(page, 'Typed in the first Workspace');
-
-		await page.goto('./');
-		await createWorkspace(page, 'Teaching');
-		await expect(page.getByText('No Projects yet')).toBeVisible();
 
 		await switchToWorkspace(page, DEFAULT_WORKSPACE);
 
@@ -1405,140 +762,49 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 	});
 });
 
-test.describe('a Project from a newer version (ADR-0010)', () => {
+test('a Project from a newer version is listed as unopenable, and opening it is refused with the remedy and leaves it unmodified (ADR-0010)', async ({
+	page
+}) => {
 	const fromTheFuture =
 		'{"formatVersion":2,"name":"Tomorrow","layers":[{"kind":"something-new"}],"baseMap":null}';
+	await page.goto('./');
+	await emptyWorkspace(page);
+	await seedFile(page, 'from-the-future/project.json', fromTheFuture);
+	const before = await hashesUnder(page, '', 'from-the-future');
 
-	test.beforeEach(async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await seedProject(page, 'from-the-future', fromTheFuture);
-	});
+	await page.goto('./');
+	await expect(page.getByText('Made with a newer version of Ballastella.')).toBeVisible();
 
-	test('is refused with a message that names the remedy, and is not modified', async ({ page }) => {
-		const before = await hashProject(page, 'from-the-future');
+	await page.goto('./?p=from-the-future');
 
-		await page.goto('./?p=from-the-future');
+	const alert = page.getByRole('alert');
+	await expect(alert).toContainText('newer version of Ballastella');
+	await expect(alert).toContainText('update your copy');
+	await expect(alert).toContainText('https://');
 
-		const alert = page.getByRole('alert');
-		await expect(alert).toContainText('newer version of Ballastella');
-		await expect(alert).toContainText('update your copy');
-		await expect(alert).toContainText('https://');
-
-		expect(await hashProject(page, 'from-the-future')).toEqual(before);
-		const contents = await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			const project = await root.getDirectoryHandle('from-the-future');
-			return (await (await project.getFileHandle('project.json')).getFile()).text();
-		});
-		expect(contents).toBe(fromTheFuture);
-	});
-
-	test('is still listed on the hub, marked as unopenable', async ({ page }) => {
-		await page.goto('./');
-
-		await expect(page.getByText('Made with a newer version of Ballastella.')).toBeVisible();
-	});
+	expect(await hashesUnder(page, '', 'from-the-future')).toEqual(before);
+	expect(await readStoredFile(page, 'from-the-future/project.json')).toBe(fromTheFuture);
 });
 
-test.describe('an unreachable Workspace (ADR-0008)', () => {
-	// The failure is injected at the browser API, not through a hook in the app: the app cannot
-	// tell it is being lied to, which is the point.
-	test.beforeEach(async ({ page }) => {
-		await page.addInitScript(() => {
-			navigator.storage.getDirectory = () =>
-				Promise.reject(new DOMException('The Workspace could not be found', 'NotFoundError'));
-		});
+test('an unreachable Workspace shows "Workspace not reachable" with a locate-again action, not an error boundary (ADR-0008)', async ({
+	page
+}) => {
+	await page.addInitScript(() => {
+		navigator.storage.getDirectory = () =>
+			Promise.reject(new DOMException('The Workspace could not be found', 'NotFoundError'));
 	});
+	await page.goto('./');
 
-	test('shows "Workspace not reachable" with a locate-again action, not an error boundary', async ({
-		page
-	}) => {
-		await page.goto('./');
+	const alert = page.getByRole('alert');
+	await expect(alert).toContainText('Workspace not reachable');
+	await expect(alert).toContainText('The Workspace could not be found');
 
-		const alert = page.getByRole('alert');
-		await expect(alert).toContainText('Workspace not reachable');
-		await expect(alert).toContainText('The Workspace could not be found');
+	const locate = page.getByRole('button', { name: 'Locate Workspace again' });
+	await expect(locate).toBeVisible();
+	await locate.focus();
+	await expect(locate).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(alert).toContainText('Workspace not reachable');
 
-		const locate = page.getByRole('button', { name: 'Locate Workspace again' });
-		await expect(locate).toBeVisible();
-		await locate.focus();
-		await expect(locate).toBeFocused();
-		await page.keyboard.press('Enter');
-		await expect(alert).toContainText('Workspace not reachable');
-
-		// SvelteKit's error boundary would have replaced the page.
-		await expect(page.getByRole('heading', { level: 1, name: 'Ballastella Editor' })).toBeVisible();
-	});
-});
-
-test.describe('opening a Project and closing it (ADR-0010)', () => {
-	test.beforeEach(async ({ page }) => {
-		await page.goto('./');
-		await emptyWorkspace(page);
-		await page.reload();
-	});
-
-	test('tabbing and clicking through the name field writes nothing', async ({ page }) => {
-		// The byte-identity test below navigates with `page.goto` and never focuses anything, so it
-		// cannot see this: `onblur` committed with no dirty check, and `writeProject` stamps a fresh
-		// `updatedAt` unconditionally, so a user who merely tabbed into the field and out again
-		// rewrote `project.json`. ADR-0010 is explicit — merely looking at an old Project must not
-		// modify files, or opening one in a git working tree produces an unexplained diff and opening
-		// one in a Dropbox folder syncs a rewrite to every other machine.
-		await createProject(page, 'Amsterdam 1625');
-		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
-		const before = await hashProject(page, 'amsterdam-1625');
-		const dialog = await openProjectSettings(page);
-		const field = dialog.getByLabel('Project name');
-		await expect(field).toBeVisible();
-
-		await field.focus();
-		await expect(field).toBeFocused();
-		await page.keyboard.press('Tab');
-		await expect(field).not.toBeFocused();
-
-		// And with the pointer, which is the same gesture through a different event order. Inside the
-		// dialog, because `showModal()` makes everything outside it inert.
-		await field.click();
-		await dialog.getByRole('heading', { name: 'Project settings' }).click();
-		await expect(field).not.toBeFocused();
-
-		// An absence, so it needs a settle: longer than the 400 ms debounce, plus the flush that
-		// `pagehide` forces, so any write the app was going to make has certainly happened.
-		await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
-		await page.waitForTimeout(600);
-
-		expect(await hashProject(page, 'amsterdam-1625')).toEqual(before);
-	});
-
-	test('writes nothing: every file is byte-identical before and after', async ({ page }) => {
-		await createProject(page, 'Amsterdam 1625');
-		await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			const project = await root.getDirectoryHandle('amsterdam-1625');
-			// `annotations/` rather than `images/`: since ADR-0023 a pyramid is the Workspace's and is not
-			// inside a Project at all, so a nested fixture under the Project has to be one of the Project's
-			// own files or the claim below would be about a file the application never puts there.
-			const annotations = await project.getDirectoryHandle('annotations', { create: true });
-			const file = await annotations.getFileHandle('l-notes.geojson', { create: true });
-			const writable = await file.createWritable();
-			await writable.write('{"type":"FeatureCollection","features":[]}');
-			await writable.close();
-		});
-		const before = await hashProject(page, 'amsterdam-1625');
-		// The hash has to reach into subdirectories, or "every file is byte-identical" is a claim
-		// about `project.json` alone. The nested `annotations/l-notes.geojson` stands in for the
-		// Annotations a real Project holds — untouched by merely looking. Sorted, because OPFS promises no
-		// enumeration order.
-		expect(Object.keys(before).sort()).toEqual(['annotations/l-notes.geojson', 'project.json']);
-
-		await page.goto('./?p=amsterdam-1625');
-		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
-		await page.goto('./');
-		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
-
-		expect(await hashProject(page, 'amsterdam-1625')).toEqual(before);
-	});
+	await expect(page.getByRole('heading', { level: 1, name: 'Ballastella Editor' })).toBeVisible();
 });

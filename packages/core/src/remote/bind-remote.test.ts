@@ -8,6 +8,7 @@ import {
 	serialiseReviewMark
 } from '../project/review-workspace.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
+import { rejection } from '../test-support.js';
 import {
 	PAGES_POLL_DELAYS,
 	RemoteBindRefusedError,
@@ -19,44 +20,43 @@ import {
 	pagesSettingsUrl,
 	readRemoteRights,
 	shareLinksWithdrawalMessage,
-	withdrawalNotRecordedMessage,
-	type RemoteReference
+	withdrawalNotRecordedMessage
 } from './bind-remote.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
+import { ATLAS as REMOTE, atlasWithReadme } from './remote-test-support.js';
 
-// The in-memory seam, against the one shared fake GitHub. What is asserted here is the *answer* —
-// may this credential push, is the site on, what is the author owed next — rather than which requests
-// were made, for the reason CONTRIBUTING.md gives: a test that counts calls passes over every one of
-// the silent failures connecting can have.
-
-const REMOTE: RemoteReference = { owner: 'ada', repository: 'atlas', branch: 'main' };
 const TOKEN = 'github_pat_11ABCDE0000abcdefghij';
+const github = atlasWithReadme;
+const SETTINGS_URL = 'https://github.com/ada/atlas/settings/pages';
+const BRANCH_STEP = [/Settings → Pages/, /Deploy from a branch/, /“main”/, /\/ \(root\)/];
 
-/**
- * The ordinary repository this suite binds to: public, with a `main` branch already on it.
- *
- * A starting tree rather than none, because a repository with no commits has no branch for Pages to
- * be pointed at and is its own case — {@link emptyRepository} below.
- */
-const github = (): Promise<FakeGitHub> =>
-	createFakeGitHub({
-		owner: REMOTE.owner,
-		repository: REMOTE.repository,
-		tree: { 'README.md': '# Atlas\n' }
-	});
+const via = <T extends object = object>(fetch: FetchFn, overrides = {} as T) => ({
+	token: TOKEN,
+	remote: REMOTE,
+	fetch,
+	...overrides
+});
 
-/** A repository created a moment ago at `github.com/new`, with nothing in it and no branches. */
-const emptyRepository = (): Promise<FakeGitHub> =>
-	createFakeGitHub({ owner: REMOTE.owner, repository: REMOTE.repository });
+const offline: FetchFn = () => Promise.reject(new TypeError('Failed to fetch'));
 
-/** A GitHub that will not accept the credential at all: an expired or revoked token. */
+const counting = (fake: FakeGitHub) => {
+	const seen: { input: string; authorization: string | null }[] = [];
+	const fetch: FetchFn = (input, init) => {
+		seen.push({
+			input: String(input),
+			authorization: new Headers(init?.headers).get('Authorization')
+		});
+		return fake.fetch(input, init);
+	};
+	return { fetch, seen };
+};
+
 const rejectingCredential = async (): Promise<FetchFn> => {
 	const remote = await github();
 	remote.rejectCredential = true;
 	return remote.fetch;
 };
 
-/** A Workspace that is a review copy of somebody else's Project (ADR-0024). */
 const reviewCopy = (): MemoryProjectStore => {
 	const store = new MemoryProjectStore();
 	store.plant(
@@ -73,83 +73,54 @@ const reviewCopy = (): MemoryProjectStore => {
 };
 
 describe('the rights check that happens at bind, not after four thousand tiles (ADR-0033)', () => {
-	it('reports a credential that may push', async () => {
+	it.each([
+		['a credential that may push', TOKEN, true, true],
+		['a credential that may not', TOKEN, false, false],
+		['no push rights when GitHub said nothing about them', '', true, false]
+	])('reports %s', async (_what, token, push, canPush) => {
 		const remote = await github();
+		if (!push) remote.permissions = { push: false, admin: false };
 
-		expect(await readRemoteRights({ token: TOKEN, remote: REMOTE, fetch: remote.fetch })).toEqual({
-			canPush: true
-		});
+		expect(await readRemoteRights(via(remote.fetch, { token }))).toEqual({ canPush });
 	});
 
-	it('reports a credential that may not', async () => {
-		const remote = await github();
-		remote.permissions = { push: false, admin: false };
-
-		expect(await readRemoteRights({ token: TOKEN, remote: REMOTE, fetch: remote.fetch })).toEqual({
-			canPush: false
-		});
-	});
-
-	// `permissions` appears only on an authenticated read, so a response without it is a read GitHub
-	// answered for anybody. "Nobody said you may push" is the same answer as "you may not", and the
-	// only question being asked is whether a send would be refused. Provoked by sending no
-	// credential at all, which is the one way a real repository answers without the field.
-	it('reports no push rights when GitHub said nothing about them', async () => {
-		const remote = await github();
-
-		expect(await readRemoteRights({ token: '', remote: REMOTE, fetch: remote.fetch })).toEqual({
-			canPush: false
-		});
-	});
-
-	it('refuses a credential GitHub will not accept, and says the token was not kept', async () => {
-		await expect(
-			readRemoteRights({ token: 'ghp_expired', remote: REMOTE, fetch: await rejectingCredential() })
-		).rejects.toThrow(/would not accept that token.*has not been kept/s);
-	});
-
-	it('refuses a repository that is not there, and says a private one looks the same', async () => {
-		const remote = await github();
-
-		await expect(
-			readRemoteRights({
-				token: TOKEN,
-				remote: { owner: 'ada', repository: 'not-a-repository' },
-				fetch: remote.fetch
-			})
-		).rejects.toThrow(/private repository looks exactly like a missing one/);
-	});
-
-	it('tells the two refusals apart, so the screen can offer the right remedy', async () => {
-		const remote = await github();
-		const refusal = async (against: RemoteReference, fetch: FetchFn) =>
-			readRemoteRights({ token: TOKEN, remote: against, fetch }).catch(
-				(cause: unknown) => (cause as RemoteBindRefusedError).refusal
-			);
-
-		expect(await refusal(REMOTE, await rejectingCredential())).toBe('credential');
-		expect(await refusal({ owner: 'ada', repository: 'nope' }, remote.fetch)).toBe('no-repository');
+	it.each([
+		[
+			'a credential GitHub will not accept, and says the token was not kept',
+			rejectingCredential,
+			REMOTE,
+			'credential',
+			/would not accept that token.*has not been kept/s
+		],
+		[
+			'a repository that is not there, and says a private one looks the same',
+			async () => (await github()).fetch,
+			{ owner: 'ada', repository: 'not-a-repository' },
+			'no-repository',
+			/private repository looks exactly like a missing one/
+		]
+	])('refuses %s', async (_what, fetch, remote, refusal, message) => {
+		const cause = await rejection(
+			RemoteBindRefusedError,
+			readRemoteRights(via(await fetch(), { remote }))
+		);
+		expect(cause.refusal).toBe(refusal);
+		expect(cause.message).toMatch(message);
 	});
 
 	it('says a network failure is the connection rather than a missing repository', async () => {
-		const offline = () => Promise.reject(new TypeError('Failed to fetch'));
-
-		await expect(
-			readRemoteRights({ token: TOKEN, remote: REMOTE, fetch: offline })
-		).rejects.toThrow(/could not be reached.*still saved on this computer/s);
+		await expect(readRemoteRights(via(offline))).rejects.toThrow(
+			/could not be reached.*still saved on this computer/s
+		);
 	});
 });
 
-// ⚠ **Four outcomes and no fifth, and none of them is a throw** (ADR-0045). A repository full of
-// correct files that serves nothing is the failure this exists to avoid, and an error dialog is a
-// worse one — so every answer here is a sentence and a next action.
 describe('turning Pages on, whose failure is a step rather than an error', () => {
-	it('turns it on when the credential is permitted to', async () => {
+	it.each([false, true])('turns it on when permitted (already enabled: %s)', async (already) => {
 		const remote = await github();
+		remote.pagesEnabled = already;
 
-		const outcome = await enableRemotePages({ token: TOKEN, remote: REMOTE, fetch: remote.fetch });
-
-		expect(outcome).toEqual({
+		expect(await enableRemotePages(via(remote.fetch))).toEqual({
 			enabled: true,
 			next: 'none',
 			instruction: '',
@@ -159,95 +130,48 @@ describe('turning Pages on, whose failure is a step rather than an error', () =>
 		expect(remote.pagesEnabled).toBe(true);
 	});
 
-	// A scholar asking again on a second machine meets this every time, and it is success: the site
-	// already serves.
-	it('treats “already enabled” as success', async () => {
-		const remote = await github();
-		remote.pagesEnabled = true;
-
-		const outcome = await enableRemotePages({ token: TOKEN, remote: REMOTE, fetch: remote.fetch });
-
-		expect([outcome.enabled, outcome.next, outcome.instruction]).toEqual([true, 'none', '']);
-	});
-
-	// ⚠ **Both permissions, because `POST /pages` needs both.** GitHub requires `Pages: write` *and*
-	// `Administration: write` together, and this App asks for neither — ADR-0040 refuses
-	// `Administration` outright. A sentence naming only `Pages` sends a scholar to grant the one
-	// permission they may already have granted, and leaves them there.
-	it('names both permissions, the setting, the branch, and the folder when it could not', async () => {
+	it('names both permissions and hands over the exact screen, branch and folder when it could not', async () => {
 		const remote = await github();
 		remote.refusePages = true;
 
-		const outcome = await enableRemotePages({ token: TOKEN, remote: REMOTE, fetch: remote.fetch });
-
-		expect(outcome.enabled).toBe(false);
-		expect(outcome.next).toBe('guided');
-		expect(outcome.instruction).toMatch(/Pages: Read and write/);
-		expect(outcome.instruction).toMatch(/Administration: Read and write/);
-		expect(outcome.instruction).toMatch(/Settings → Pages/);
-		expect(outcome.instruction).toMatch(/Deploy from a branch/);
-		expect(outcome.instruction).toMatch(/“main”/);
-		expect(outcome.instruction).toMatch(/\/ \(root\)/);
+		const outcome = await enableRemotePages(via(remote.fetch));
+		expect(outcome).toMatchObject({
+			enabled: false,
+			next: 'guided',
+			settingsUrl: SETTINGS_URL,
+			branch: 'main'
+		});
+		for (const said of [
+			/Pages: Read and write/,
+			/Administration: Read and write/,
+			...BRANCH_STEP
+		]) {
+			expect(outcome.instruction).toMatch(said);
+		}
 	});
 
-	// ⚠ **A refusal nobody has to be shown to predict.** A GitHub App user token cannot carry
-	// `Administration: write` (ADR-0040), so for a signed-in author `POST /pages` is refused every
-	// time — and the caller that knows which credentials those are skips the request rather than
-	// putting a spinner in front of a known answer. What must not differ is the step: the same screen,
-	// the same branch, the same folder as the refusal would have produced.
-	//
-	// That no request is made is the signature rather than an assertion: this takes no credential and
-	// no `fetch`, so there is nothing here that could reach GitHub. Which credentials skip the request
-	// is the editor's knowledge, and `e2e/editor-github-signin.e2e.ts` is where a signed-in press is
-	// watched leaving Pages off.
-	it('hands over the same step as the refusal, with nothing asked of GitHub', () => {
+	it('hands over the same step with nothing asked of GitHub, as the author’s own setting', () => {
 		const outcome = guidedPagesStep(REMOTE);
-
-		expect([outcome.enabled, outcome.next]).toEqual([false, 'guided']);
-		expect(outcome.settingsUrl).toBe('https://github.com/ada/atlas/settings/pages');
-		expect(outcome.branch).toBe('main');
-		expect(outcome.instruction).toMatch(/Settings → Pages/);
-		expect(outcome.instruction).toMatch(/Deploy from a branch/);
-		expect(outcome.instruction).toMatch(/“main”/);
-		expect(outcome.instruction).toMatch(/\/ \(root\)/);
-	});
-
-	// ⚠ **It blames nothing, because nothing the author holds is at fault.** `pagesInstruction` names
-	// a credential that lacks two permissions, which is the truth about a pasted token that could have
-	// carried them; said over a sign-in it describes a right this tool has decided not to ask for, and
-	// sends the author off to check a setting that is not theirs to fix.
-	it('says the setting is the author’s own rather than naming a credential that lacks something', () => {
-		const outcome = guidedPagesStep(REMOTE);
-
-		expect(outcome.instruction).toMatch(/one setting you make yourself/);
-		expect(outcome.instruction).toMatch(/Administration: Read and write/);
+		expect(outcome).toMatchObject({
+			enabled: false,
+			next: 'guided',
+			settingsUrl: SETTINGS_URL,
+			branch: 'main'
+		});
+		for (const said of [
+			/one setting you make yourself/,
+			/Administration: Read and write/,
+			...BRANCH_STEP
+		]) {
+			expect(outcome.instruction).toMatch(said);
+		}
 		expect(outcome.instruction).not.toMatch(/this credential does not have/);
 	});
 
-	// ⚠ **The guided step is one click and not a search** — the screen, the branch, and the folder,
-	// handed over rather than described. The link is on the outcome so that whoever renders it cannot
-	// build a different one from the sentence beside it.
-	it('hands over the exact screen and the exact branch, not a description of them', async () => {
-		const remote = await github();
-		remote.refusePages = true;
-
-		const outcome = await enableRemotePages({ token: TOKEN, remote: REMOTE, fetch: remote.fetch });
-
-		expect(outcome.settingsUrl).toBe('https://github.com/ada/atlas/settings/pages');
-		expect(outcome.branch).toBe('main');
-	});
-
-	// ⚠ **A 422 is a repository with no branches, and saying "your token lacks Pages: write" there is
-	// wrong twice**: it names a permission that is fine, and then tells the scholar to choose a branch
-	// their repository does not have. It is the ordinary state of a repository made a moment ago at
-	// `github.com/new`, which is the link the guided sequence hands them.
 	it('says the repository is empty rather than blaming the token, when there is no branch', async () => {
-		const remote = await emptyRepository();
-
-		const outcome = await enableRemotePages({ token: TOKEN, remote: REMOTE, fetch: remote.fetch });
-
-		expect(outcome.enabled).toBe(false);
-		expect(outcome.next).toBe('sync-first');
+		const remote = await createFakeGitHub({ owner: REMOTE.owner, repository: REMOTE.repository });
+		const outcome = await enableRemotePages(via(remote.fetch));
+		expect([outcome.enabled, outcome.next]).toEqual([false, 'sync-first']);
 		expect(outcome.instruction).toMatch(/repository is empty/);
 		expect(outcome.instruction).toMatch(/Sync once/);
 		expect(outcome.instruction).not.toMatch(
@@ -256,24 +180,15 @@ describe('turning Pages on, whose failure is a step rather than an error', () =>
 	});
 
 	it('never throws, even when GitHub cannot be reached at all', async () => {
-		const offline = () => Promise.reject(new TypeError('Failed to fetch'));
-
-		const outcome = await enableRemotePages({ token: TOKEN, remote: REMOTE, fetch: offline });
-
-		expect(outcome.enabled).toBe(false);
-		expect(outcome.next).toBe('guided');
+		const outcome = await enableRemotePages(via(offline));
+		expect([outcome.enabled, outcome.next]).toEqual([false, 'guided']);
 		expect(outcome.instruction).toMatch(/Settings → Pages/);
 	});
 });
 
-// ⚠ **The waiting and the verifying are ours** (ADR-0045). The author does one thing on github.com;
-// guessing when it took effect, and pressing until it does, is the avoidable half of the manual step.
 describe('checking again until the site answers', () => {
-	/** The poll's own clock, so the whole backoff sequence is a test costing milliseconds. */
 	const waited: number[] = [];
-	const wait = async (milliseconds: number) => {
-		waited.push(milliseconds);
-	};
+	const wait = async (milliseconds: number) => void waited.push(milliseconds);
 
 	beforeEach(() => {
 		waited.length = 0;
@@ -283,93 +198,48 @@ describe('checking again until the site answers', () => {
 		const remote = await github();
 		remote.pagesEnabled = true;
 
-		const outcome = await awaitRemotePages({
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch,
-			wait
-		});
-
-		expect([outcome.enabled, outcome.next]).toEqual([true, 'none']);
-		expect(waited).toEqual([]);
+		const outcome = await awaitRemotePages(via(remote.fetch, { wait }));
+		expect([outcome.enabled, outcome.next, waited]).toEqual([true, 'none', []]);
 	});
 
 	it('keeps asking while the answer is “not yet”, and carries on the moment it is not', async () => {
 		const remote = await github();
 		let asks = 0;
-		const answering = (input: Request | string | URL, init?: RequestInit) => {
-			if (String(typeof input === 'string' ? input : (input as Request).url).endsWith('/pages')) {
-				asks += 1;
-				// The author presses Save on github.com between the second poll and the third.
-				if (asks === 3) remote.pagesEnabled = true;
-			}
+		const answering: FetchFn = (input, init) => {
+			if (String(input).endsWith('/pages') && ++asks === 3) remote.pagesEnabled = true;
 			return remote.fetch(input, init);
 		};
 
-		const outcome = await awaitRemotePages({
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: answering,
-			wait
-		});
-
-		expect(outcome.enabled).toBe(true);
-		expect(asks).toBe(3);
-		// Backed off rather than evenly spaced, and the first ask is immediate.
-		expect(waited).toEqual([...PAGES_POLL_DELAYS.slice(1, 3)]);
+		const outcome = await awaitRemotePages(via(answering, { wait }));
+		expect([outcome.enabled, asks, waited]).toEqual([true, 3, [...PAGES_POLL_DELAYS.slice(1, 3)]]);
 	});
 
-	// ⚠ **A press with a result, never a background job.** A poll that never gave up would leave the
-	// author watching a spinner with nothing to act on, so it ends on the same guided step — which is
-	// a screen they can press again.
 	it('gives up on the guided step rather than polling forever', async () => {
 		const remote = await github();
-
-		const outcome = await awaitRemotePages({
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch,
-			wait
-		});
-
-		expect([outcome.enabled, outcome.next]).toEqual([false, 'guided']);
-		expect(outcome.settingsUrl).toBe('https://github.com/ada/atlas/settings/pages');
+		const outcome = await awaitRemotePages(via(remote.fetch, { wait }));
+		expect([outcome.enabled, outcome.next, outcome.settingsUrl]).toEqual([
+			false,
+			'guided',
+			SETTINGS_URL
+		]);
 		expect(waited.length).toBe(PAGES_POLL_DELAYS.length - 1);
 	});
 
 	it('never throws when GitHub cannot be reached at all', async () => {
-		const offline = () => Promise.reject(new TypeError('Failed to fetch'));
-
-		const outcome = await awaitRemotePages({ token: TOKEN, remote: REMOTE, fetch: offline, wait });
-
-		expect(outcome.enabled).toBe(false);
+		expect((await awaitRemotePages(via(offline, { wait }))).enabled).toBe(false);
 	});
 });
 
-// ⚠ **It is not a way to take the work back, and it is never presented as one** (ADR-0045).
 describe('withdrawing Share Links', () => {
-	it('takes the site down', async () => {
+	it.each([
+		['takes the site down', true],
+		['treats a repository with no site as the state it wanted', false]
+	])('%s', async (_what, live) => {
 		const remote = await github();
-		remote.pagesEnabled = true;
+		remote.pagesEnabled = live;
 
-		const withdrawal = await disableRemotePages({
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
-		expect(withdrawal).toEqual({ disabled: true, notice: '' });
+		expect(await disableRemotePages(via(remote.fetch))).toEqual({ disabled: true, notice: '' });
 		expect(remote.pagesEnabled).toBe(false);
-	});
-
-	// Withdrawing twice must not report the second attempt as a failure: a repository with no site is
-	// the state being asked for.
-	it('treats a repository with no site as the state it wanted', async () => {
-		const remote = await github();
-
-		expect(await disableRemotePages({ token: TOKEN, remote: REMOTE, fetch: remote.fetch })).toEqual(
-			{ disabled: true, notice: '' }
-		);
 	});
 
 	it('never throws, and says the site may still answer when GitHub refused', async () => {
@@ -377,286 +247,157 @@ describe('withdrawing Share Links', () => {
 		remote.pagesEnabled = true;
 		remote.refusePages = true;
 
-		const withdrawal = await disableRemotePages({
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
+		const withdrawal = await disableRemotePages(via(remote.fetch));
 		expect(withdrawal.disabled).toBe(false);
 		expect(withdrawal.notice).toMatch(/may still answer/);
 		expect(withdrawal.notice).toMatch(/your own work is untouched/i);
 		expect(withdrawal.notice).toContain(pagesSettingsUrl(REMOTE));
 	});
 
-	// ⚠ **The three things it cannot promise, named before it happens.** A scholar who reads "turn the
-	// site off" as "make it unseen" will act on that reading — with an embargoed photograph, or a
-	// manuscript under a library's restriction.
-	it('says plainly what cannot be undone, and what is untouched', () => {
-		const said = shareLinksWithdrawalMessage(REMOTE);
-
-		expect(said).toMatch(/already given out stops working/);
-		expect(said).toMatch(/cache/);
-		expect(said).toMatch(/forked/);
-		expect(said).toMatch(/cannot make anything unseen/i);
-		expect(said).toMatch(/repository and your own files are untouched/);
-	});
-
-	// ⚠ **An unrecorded request is not a half-withdrawal but one the next Sync reverses.** The Remote
-	// goes on carrying the viewer set until a Sync takes it out, and only the recorded asking tells
-	// that apart from a Workspace freshly got from a Remote that has a site — so a browser that would
-	// not keep the record leaves the author looking at a site they took down.
-	it('says the next Sync puts the site back when the request could not be kept', () => {
-		const said = withdrawalNotRecordedMessage(REMOTE);
-
-		expect(said).toContain('ada/atlas');
-		expect(said).toMatch(/put the viewer's files back/);
-		expect(said).toMatch(/browser storage may be full/);
-		expect(said).toMatch(/Withdraw Share Links again/);
+	it.each([
+		[
+			'what cannot be undone, and what is untouched',
+			shareLinksWithdrawalMessage,
+			[
+				/already given out stops working/,
+				/cache/,
+				/forked/,
+				/cannot make anything unseen/i,
+				/repository and your own files are untouched/
+			]
+		],
+		[
+			'that the next Sync puts the site back when the request could not be kept',
+			withdrawalNotRecordedMessage,
+			[
+				/ada\/atlas/,
+				/put the viewer's files back/,
+				/browser storage may be full/,
+				/Withdraw Share Links again/
+			]
+		]
+	])('says plainly %s', (_what, message, said) => {
+		for (const words of said) expect(message(REMOTE)).toMatch(words);
 	});
 });
 
 describe('connecting a Workspace', () => {
-	it('answers the repository with its branch resolved, and the rights with it', async () => {
+	it('answers the repository with its one branch resolved unasked, and the rights, leaving Pages and the store alone', async () => {
 		const store = new MemoryProjectStore();
 		const remote = await github();
-
-		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
+		const outcome = await bindWorkspaceToRemote(
+			store,
+			'My Workspace',
+			via(remote.fetch, { remote: { owner: 'ada', repository: 'atlas' } })
+		);
+		expect(outcome).toMatchObject({
+			canPush: true,
+			rightsNotice: '',
+			remote: { owner: 'ada', repository: 'atlas', branch: 'main' }
 		});
-
-		expect(outcome.canPush).toBe(true);
-		expect(outcome.rightsNotice).toBe('');
-		expect(outcome.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
-		// ⚠ **Nothing is written into the Workspace**, so a Workspace copied to another machine
-		// arrives bound to nothing at all and no repository can claim it (ADR-0044).
-		expect(await store.list('')).toEqual([]);
+		expect([remote.pagesEnabled, await store.list('')]).toEqual([false, []]);
 	});
 
-	// ⚠ **A Remote is a place the work lives before it is a site anybody reads.** Turning Pages on is
-	// a separate, later, optional act, so a bind that succeeds leaves the repository exactly as it
-	// found it — and never answers a question about who may read this with a paragraph about a
-	// permission.
-	it('does not turn Pages on, so the repository is left as it was found', async () => {
-		const store = new MemoryProjectStore();
-		const remote = await github();
-
-		await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
-		expect(remote.pagesEnabled).toBe(false);
-	});
-
-	// The same claim where it would otherwise be loudest: a credential that cannot enable Pages binds
-	// with nothing to say about Pages at all.
 	it('binds without a word about Pages when the credential could not have turned it on', async () => {
-		const store = new MemoryProjectStore();
 		const remote = await github();
 		remote.refusePages = true;
 
-		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
+		const outcome = await bindWorkspaceToRemote(
+			new MemoryProjectStore(),
+			'My Workspace',
+			via(remote.fetch)
+		);
 		expect(outcome).not.toHaveProperty('pages');
 		expect(outcome.rightsNotice).toBe('');
 	});
 
-	it('resolves the branch to main without being asked, because there is one branch', async () => {
-		const store = new MemoryProjectStore();
-		const remote = await github();
-
-		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: TOKEN,
-			remote: { owner: 'ada', repository: 'atlas' },
-			fetch: remote.fetch
-		});
-
-		expect(outcome.remote.branch).toBe('main');
-	});
-
-	// ADR-0033: the relationship is provenance, not permission. A reader who opened somebody's public
-	// Workspace has a legitimate connected-but-unable-to-push state, and the thing that must not
-	// happen is discovering the refusal after an upload.
 	it('still connects when the credential cannot push, and says so plainly', async () => {
-		const store = new MemoryProjectStore();
 		const remote = await github();
 		remote.permissions = { push: false, admin: false };
 
-		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
-		expect(outcome.canPush).toBe(false);
+		const outcome = await bindWorkspaceToRemote(
+			new MemoryProjectStore(),
+			'My Workspace',
+			via(remote.fetch)
+		);
+		expect([outcome.canPush, outcome.remote.repository]).toEqual([false, 'atlas']);
 		expect(outcome.rightsNotice).toMatch(/cannot push to ada\/atlas/);
 		expect(outcome.rightsNotice).toMatch(/Contents: Read and write/);
-		expect(outcome.remote.repository).toBe('atlas');
 	});
 
 	it('writes nothing when GitHub refuses the credential', async () => {
 		const store = new MemoryProjectStore();
 
 		await expect(
-			bindWorkspaceToRemote(store, 'My Workspace', {
-				token: 'ghp_expired',
-				remote: REMOTE,
-				fetch: await rejectingCredential()
-			})
+			bindWorkspaceToRemote(
+				store,
+				'My Workspace',
+				via(await rejectingCredential(), { token: 'ghp_expired' })
+			)
 		).rejects.toThrow(RemoteBindRefusedError);
 
 		expect(await store.list('')).toEqual([]);
 	});
 });
 
-// ── Connecting with no credential at all (ADR-0044) ───────────────────────────────────────────
-//
-// ⚠ **The property this suite exists to hold is that getting needs no account.** A public
-// repository is readable by anyone, so a student can seed a Workspace from their instructor's
-// repository having signed up for nothing — and every request below carries no `Authorization`
-// header, which the fake answers exactly as GitHub does.
 describe('connecting a Workspace with nobody signed in', () => {
-	it('connects to a public repository, so a student with no GitHub account can get from it', async () => {
+	it('connects to a public repository claiming no push rights, and sends no Authorization header', async () => {
 		const store = new MemoryProjectStore();
-		const remote = await github();
+		const watched = counting(await github());
 
-		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: null,
-			remote: REMOTE,
-			fetch: remote.fetch
+		const outcome = await bindWorkspaceToRemote(
+			store,
+			'My Workspace',
+			via(watched.fetch, { token: null })
+		);
+
+		expect(outcome).toMatchObject({
+			canPush: false,
+			rightsNotice: '',
+			remote: { owner: 'ada', repository: 'atlas', branch: 'main' }
 		});
-
-		expect(outcome.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
 		expect(await store.list('')).toEqual([]);
-	});
-
-	// ⚠ **`canPush: false` here means "nobody asked", and the empty notice is what says so.**
-	// `noPushMessage` is a report that GitHub turned this author down, and nothing has been turned
-	// down: the screen states that sending needs a sign-in instead (ADR-0044).
-	it('claims nothing about push rights, because it could not have checked them', async () => {
-		const store = new MemoryProjectStore();
-		const remote = await github();
-
-		const outcome = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: null,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
-		expect(outcome.canPush).toBe(false);
-		expect(outcome.rightsNotice).toBe('');
-	});
-
-	it('sends no Authorization header, so nothing about the reader reaches GitHub', async () => {
-		const store = new MemoryProjectStore();
-		const remote = await github();
-		const sent: (string | null)[] = [];
-		const watched = (input: Request | string | URL, init?: RequestInit) => {
-			const headers = new Headers(init?.headers);
-			sent.push(headers.get('Authorization'));
-			return remote.fetch(input, init);
-		};
-
-		await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: null,
-			remote: REMOTE,
-			fetch: watched
-		});
-
+		const sent = watched.seen.map((one) => one.authorization);
 		expect(sent).not.toEqual([]);
 		expect(sent.every((one) => one === null)).toBe(true);
 	});
 
-	// A private repository and a missing one are one answer to somebody who has signed in to nothing,
-	// and the sentence says so rather than sending them to check a name that is fine.
 	it('names the sign-in as the remedy when GitHub answers nothing at that address', async () => {
-		const store = new MemoryProjectStore();
 		const remote = await github();
 
-		const refusal = await bindWorkspaceToRemote(store, 'My Workspace', {
-			token: null,
-			remote: { owner: 'ada', repository: 'private-atlas' },
-			fetch: remote.fetch
-		}).catch((cause: unknown) => cause);
+		const refusal = await rejection(
+			RemoteBindRefusedError,
+			bindWorkspaceToRemote(
+				new MemoryProjectStore(),
+				'My Workspace',
+				via(remote.fetch, { token: null, remote: { owner: 'ada', repository: 'private-atlas' } })
+			)
+		);
 
-		expect(refusal).toBeInstanceOf(RemoteBindRefusedError);
-		expect((refusal as RemoteBindRefusedError).refusal).toBe('no-repository');
-		expect((refusal as Error).message).toMatch(/no public repository at ada\/private-atlas/);
-		expect((refusal as Error).message).toMatch(/sign in/i);
+		expect(refusal.refusal).toBe('no-repository');
+		expect(refusal.message).toMatch(/no public repository at ada\/private-atlas/);
+		expect(refusal.message).toMatch(/sign in/i);
 	});
 });
 
-// ── A Review Workspace can never be bound (ADR-0024) ──────────────────────────────────────────
-//
-// Somebody else's Project in a throwaway Workspace, and putting it at your own address is promotion
-// by another route. A hard refusal with a test, at this layer and at the app's.
 describe('a Review Workspace can never be bound', () => {
-	it('is refused before a single request is made', async () => {
-		const store = reviewCopy();
+	it.each([
+		['is refused before a single request is made', TOKEN],
+		['is refused with no credential either, so anonymity is not a way round it', null]
+	])('%s', async (_, token) => {
 		const remote = await github();
-		// A fake that would answer perfectly well, so the refusal below is the domain rule rather than
-		// a request that happened to fail. Counted because the rule is that a Review Workspace must not
-		// reach a credential *at all*, and a rights check made with one and then discarded would satisfy
-		// every other assertion here.
-		let asked = 0;
-		const counted = (input: Request | string | URL, init?: RequestInit) => {
-			asked += 1;
-			return remote.fetch(input, init);
-		};
+		const counted = counting(remote);
 
 		await expect(
-			bindWorkspaceToRemote(store, 'assignment 7', {
-				token: TOKEN,
-				remote: REMOTE,
-				fetch: counted
-			})
+			bindWorkspaceToRemote(reviewCopy(), 'assignment 7', via(counted.fetch, { token }))
 		).rejects.toThrow(ReviewWorkspaceError);
 
-		expect(asked).toBe(0);
+		expect(counted.seen).toEqual([]);
 		expect(remote.pagesEnabled).toBe(false);
 	});
-
-	// ⚠ **The refusal is about the Workspace and not about the credential**, so taking the credential
-	// away does not turn it into a permitted act: connecting anonymously is exactly what a Review
-	// Workspace would otherwise be able to do unaided.
-	it('is refused with no credential either, so anonymity is not a way round it', async () => {
-		const store = reviewCopy();
-		const remote = await github();
-		let asked = 0;
-		const counted = (input: Request | string | URL, init?: RequestInit) => {
-			asked += 1;
-			return remote.fetch(input, init);
-		};
-
-		await expect(
-			bindWorkspaceToRemote(store, 'assignment 7', {
-				token: null,
-				remote: REMOTE,
-				fetch: counted
-			})
-		).rejects.toThrow(ReviewWorkspaceError);
-
-		expect(asked).toBe(0);
-	});
 });
 
-// ── A Remote that already carries Ballastella work (ADR-0044) ─────────────────────────────────
-//
-// ⚠ **This used to be refused and is now the ordinary case.** ADR-0033's subset refusal existed
-// because a first send would have deleted every Project the Workspace had not got. It cannot: a send
-// removes only what the Synchronization Baseline recorded, so a Workspace with no Baseline removes
-// nothing at all, and what the repository holds reads as work to get. Kept as a describe of its own
-// because the case it names is the one the refusal was written for.
-describe('binding to a Remote that already carries Projects this Workspace has not got', () => {
-	/** A Workspace's site record, as it sits at the root of a Remote. */
+describe('binding to a Remote whatever Projects it already carries', () => {
 	const siteRecord = (...projects: { directory: string; name: string }[]): string =>
 		JSON.stringify({
 			formatVersion: 2,
@@ -669,7 +410,6 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 			baseMapCaches: []
 		});
 
-	/** A Remote somebody has already sent two Projects to. */
 	const alreadySent = (): Promise<FakeGitHub> =>
 		createFakeGitHub({
 			owner: REMOTE.owner,
@@ -685,58 +425,19 @@ describe('binding to a Remote that already carries Projects this Workspace has n
 			}
 		});
 
-	/** A Workspace holding the named Project directories and nothing else. */
-	const holding = async (...directories: string[]): Promise<MemoryProjectStore> => {
+	it.each([
+		['carrying Projects this Workspace has not got', alreadySent],
+		['nothing has ever been sent to', github]
+	])('connects to a Remote %s, reading nothing but the repository itself', async (_what, fake) => {
 		const store = new MemoryProjectStore();
-		for (const directory of directories) {
-			await store.write(
-				`${directory}/project.json`,
-				new TextEncoder().encode(`{"formatVersion":1,"name":"${directory}"}`)
-			);
-		}
-		return store;
-	};
+		store.plant('amsterdam-1625/project.json', new TextEncoder().encode('{"formatVersion":1}'));
+		const counted = counting(await fake());
 
-	it('connects, so that an existing Workspace can be joined to an existing repository', async () => {
-		const store = await holding('amsterdam-1625');
-		const remote = await alreadySent();
-
-		const outcome = await bindWorkspaceToRemote(store, 'atlas', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
+		const outcome = await bindWorkspaceToRemote(store, 'atlas', via(counted.fetch));
 
 		expect(outcome.remote).toEqual({ owner: 'ada', repository: 'atlas', branch: 'main' });
-	});
-
-	// The refusal used to read the Remote's site record over the raw host to find out what it carried.
-	// Nothing does now, and the request is worth asserting gone: it was a second read of a repository
-	// the rights check has already established, on every connection anybody ever makes.
-	it('reads nothing but the repository itself, whatever the Remote carries', async () => {
-		const store = await holding('amsterdam-1625');
-		const remote = await alreadySent();
-		let raw = 0;
-		const counted: typeof remote.fetch = async (input, init) => {
-			if (String(input).includes('raw.githubusercontent.com')) raw += 1;
-			return remote.fetch(input, init);
-		};
-
-		await bindWorkspaceToRemote(store, 'atlas', { token: TOKEN, remote: REMOTE, fetch: counted });
-
-		expect(raw).toBe(0);
-	});
-
-	it('connects to a Remote nothing has ever been sent to', async () => {
-		const store = await holding('amsterdam-1625');
-		const remote = await github();
-
-		const outcome = await bindWorkspaceToRemote(store, 'atlas', {
-			token: TOKEN,
-			remote: REMOTE,
-			fetch: remote.fetch
-		});
-
-		expect(outcome.remote.repository).toBe('atlas');
+		expect(counted.seen.filter((one) => one.input.includes('raw.githubusercontent.com'))).toEqual(
+			[]
+		);
 	});
 });

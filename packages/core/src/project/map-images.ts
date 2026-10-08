@@ -1,64 +1,3 @@
-// The Workspace's Map Images: where each one's tiles are, which Projects draw it, and what
-// deleting one costs.
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────
-// WHY THIS MODULE EXISTS: THE FIVE SPELLINGS OF ONE QUESTION
-//
-// ADR-0023 deleted the stored `imageMode`, which was right — a claim in `project.json` could disagree
-// with the bytes on disk, and repairing that disagreement is what the deleted interrupted-copy path
-// existed for. But it did not give the *derived* answer a home, so "is this map's pyramid here, or is
-// it on a Library's server?" acquired five implementations: a private `referencedImageIds` in
-// `published-site.ts`, `partitionByOfflineCopy` in `remote-iiif/referenced-image.ts`, a 404 probe in the
-// viewer's `readMapLayer`, and a `$derived` set in each app's page. Five spellings of one rule is how
-// a Workspace ends up telling a user two different things about the same map.
-//
-// The rule is now {@link tileLocation} and there is one of it. Everything else here is a way of
-// *observing* its two inputs, and the observation genuinely does differ by backend:
-//
-//   * **A store that can list** — OPFS, a folder, the in-memory adapter — answers by walking
-//     `images/` once. That is `scanImages`, and it is what the editor and the site write use.
-//   * **A store that cannot** — ADR-0045's HTTP adapter, because a static host has no directory
-//     listing — answers by asking for the two files by name and reading the 404. That is the viewer's
-//     `readMapLayer`, which builds the same {@link MapImageFiles} pair and hands it to the same
-//     rule.
-//   * **{@link partitionByOfflineCopy}**, which observes only one of the two: every record it is handed
-//     came out of a `remote.json`, so `remoteJson` is true by construction and the rule there reduces
-//     to "is a pyramid of ours beside it?". It routes through {@link tileLocation} anyway so that the
-//     reading of *both files present* — an offline copy, not an ambiguity — is decided in one place;
-//     but it is an observer that carries one fact through the rule rather than two, and calling it a
-//     peer of the other two would overstate what it shares.
-//
-// So the seam is the *set of observations*, not the store: three observers, one rule, and no sixth
-// spelling of the rule itself.
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────
-// WHY NOTHING HERE OPENS A PYRAMID
-//
-// `workspace-size.ts` states the discipline in full and it applies unchanged: an offline copy's pyramid is
-// tens of thousands of tiles, `ProjectStore#size` answers from directory metadata for free, and a
-// total assembled with `read` would be the slowest thing in the application while returning exactly
-// the same number. **Nothing below reads a tile.**
-//
-// It does read three kinds of small document, and the difference is a per-*map* cost rather than a
-// per-*file* one: every `project.json`, because "which Projects use this map" is a fact about the
-// Layer stacks and there is nowhere else it lives; one `manifest.json` or `remote.json` per map,
-// because an image id is a random identifier (ADR-0015) and a reclaim list naming maps after hashes
-// would be unusable; and one `info.json` per Workspace-held map, for the picture the hub shows beside
-// each name (ADR-0030) — the pyramid's *description*, which is three numbers, and never one of the
-// tiles it describes. {@link unusedMapImageBytes}, which the site write calls on every plan, skips the
-// labels and the pictures entirely and weighs only the directories of maps nothing uses — usually none
-// of them.
-//
-// **What this does cost, stated plainly.** Each public question below walks for itself. On a site write
-// plan that is `list('')` twice — once for `workspaceSize` and once for the usage read — and
-// `list('images/')` twice, once for {@link unusedMapImageBytes} and once for
-// {@link referencedMapImages}. On a Workspace holding thirty thousand tiles that is four
-// enumerations of thirty thousand entries, beside the thirty thousand `size` calls `workspaceSize`
-// already makes; the enumerations are the cheaper half, and it is `size` that would have to go first
-// if this ever needs to be faster. Sharing one walk between the questions was considered and not
-// done: it would make every caller carry a scan object so that the site write — the only caller that asks
-// more than one question at a time — could save two enumerations.
-
 import { alignmentPath } from '../alignment/alignment.js';
 import {
 	parseReferencedImage,
@@ -67,7 +6,13 @@ import {
 } from '../remote-iiif/referenced-image.js';
 import { readImageLabel, wholeImageDerivative } from '../tiler/image-manifest.js';
 import { imageGeometryFromInfo, imageServiceId } from '../tiler/pyramid.js';
-import { topLevelSegment, type ProjectStore, type StorePath } from '../store/project-store.js';
+import {
+	messageOf,
+	parseJsonBytes,
+	topLevelSegment,
+	type ProjectStore,
+	type StorePath
+} from '../store/project-store.js';
 import {
 	IMAGE_DIRECTORY,
 	imageDirectory,
@@ -76,195 +21,83 @@ import {
 } from './image-files.js';
 import { ProjectFormatTooNewError, parseProjectFile, projectFilePath } from './project-file.js';
 
-/** Where one Map Image's tiles are served from, as observed rather than as claimed. */
-export type TileLocation = 'in-workspace' | 'referenced';
+type TileLocation = 'in-workspace' | 'referenced';
 
-/**
- * The two files whose presence answers it, and the whole of the evidence.
- *
- * Booleans rather than paths, so the same shape can come from a directory listing or from two
- * requests that either answered or 404ed — which is what lets the viewer share the rule below with a
- * store that has no `list`.
- */
-export interface MapImageFiles {
-	/** An `info.json` of ours is beside the map: its tiles are files of this Workspace. */
+interface MapImageFiles {
 	readonly infoJson: boolean;
-	/** A `remote.json` is beside it: the Workspace records where the map came from. */
 	readonly remoteJson: boolean;
 }
 
-/**
- * ADR-0023's rule, and the only implementation of it: **an `info.json` of ours means the tiles are
- * here.**
- *
- * `null` for a directory holding neither, which is not a Map Image at all — the tiles of an
- * ingest that was interrupted, since `info.json` is written last precisely so that an incomplete
- * pyramid is invisible (`listIngestedImages`). Nothing may list it, delete it, or count it.
- *
- * **Both files means the tiles are here**, and that is making an offline copy working rather than an ambiguity: an
- * offline copy writes a pyramid into the directory and deliberately leaves the `remote.json`, because
- * that record is the citation ADR-0007 exists to protect. Reading "both" the other way is the defect
- * this rule was gathered to stop — the site write warned about a network dependency the Workspace no
- * longer had, and the editor's Layers pane sent the renderer back to a library for tiles already on
- * the disk.
- */
 export function tileLocation(files: MapImageFiles): TileLocation | null {
 	if (files.infoJson) return 'in-workspace';
 	return files.remoteJson ? 'referenced' : null;
 }
 
-/** A Project that draws a Map Image, as the refusal and the list name it. */
-export interface MapImageUser {
-	/** The Project's identity: its directory name (ADR-0008). */
+interface MapImageUser {
 	readonly directory: string;
-	/** Its display name, or the directory when it has none. */
 	readonly name: string;
 }
 
-/** One Map Image of the Workspace, as the hub's reclaim list shows it. */
 export interface WorkspaceMapImage {
 	readonly imageId: string;
-	/** What the user calls it, or `''` when neither record says. */
 	readonly label: string;
-	/** Where a referenced Map Image came from, or `null` for a local upload. */
 	readonly provenance: {
 		readonly source: string;
 		readonly canvasLabel: string;
 	} | null;
 	readonly tiles: TileLocation;
-	/**
-	 * The Library serving the tiles, named by its address, and `''` when they are in this Workspace.
-	 *
-	 * "Library" and never "host": CONTEXT.md reserves the word for the institution whose server a
-	 * referenced map's tiles stay on, which is exactly what this is.
-	 */
 	readonly library: string;
-	/**
-	 * The picture of the sheet the hub shows beside the name, or `null` when there is none to show.
-	 *
-	 * The single tile at the coarsest level of the map's pyramid, which a level-0 pyramid ends in by
-	 * construction, so **nothing is generated and no file is written** (ADR-0030). `null` is the only
-	 * failure representation: there is no reason string and no second discriminator, because **how the
-	 * URL has to be fetched is already answered by {@link tiles} on this same record** — a
-	 * Workspace-held map's bytes come through the ADR-0011 shim, a referenced map's over the network.
-	 */
 	readonly thumbnail: string | null;
-	/** Everything deleting this map would reclaim: its pyramid, its records, and its Alignment. */
 	readonly bytes: number;
-	/** How many files that was. "3 files" and "31 000 files" are different news. */
 	readonly files: number;
-	/** The Projects whose Layers draw it, by directory order. Empty when none do. */
 	readonly usedBy: readonly MapImageUser[];
-	/**
-	 * Projects made with a newer build of Ballastella, whose Layers this build cannot read (ADR-0010).
-	 *
-	 * The **same list on every map**, because that is precisely what is known: the document is readable
-	 * and certainly has a Layer stack, but not one this build can parse, so any map in the Workspace
-	 * might be one it draws. They count as users — the map is not offered for deletion and does not
-	 * appear in the unused figure — because the alternative is telling a scholar "no Project uses this
-	 * map" about a map the build that wrote that Project would find missing.
-	 */
 	readonly mightBeUsedBy: readonly MapImageUser[];
 }
 
-/** Every path under `images/<id>/`, grouped by image id, with the two files that classify it. */
 async function scanImages(
 	store: Pick<ProjectStore, 'list'>
 ): Promise<Map<string, { files: MapImageFiles; paths: StorePath[] }>> {
 	const prefix = `${IMAGE_DIRECTORY}/`;
-	const found = new Map<string, { infoJson: boolean; remoteJson: boolean; paths: StorePath[] }>();
+	const found = new Map<
+		string,
+		{ files: { infoJson: boolean; remoteJson: boolean }; paths: StorePath[] }
+	>();
 
 	for (const path of await store.list(prefix)) {
 		const rest = path.slice(prefix.length);
 		const slash = rest.indexOf('/');
-		// `images/<id>` with nothing after it names no file, and a path this walk cannot split is not
-		// one this app wrote.
 		if (slash <= 0) continue;
 		const imageId = rest.slice(0, slash);
-		const entry = found.get(imageId) ?? { infoJson: false, remoteJson: false, paths: [] };
+		const entry = found.get(imageId) ?? {
+			files: { infoJson: false, remoteJson: false },
+			paths: []
+		};
 		entry.paths.push(path);
-		// Compared against the helpers that own the layout rather than against spelled-out names, so a
-		// change to where either file lives cannot leave this classifying by a stale one.
-		if (path === imageInfoPath(imageId)) entry.infoJson = true;
-		else if (path === referencedImagePath(imageId)) entry.remoteJson = true;
+		if (path === imageInfoPath(imageId)) entry.files.infoJson = true;
+		else if (path === referencedImagePath(imageId)) entry.files.remoteJson = true;
 		found.set(imageId, entry);
 	}
 
-	const maps = new Map<string, { files: MapImageFiles; paths: StorePath[] }>();
-	for (const [imageId, entry] of found) {
-		const files = { infoJson: entry.infoJson, remoteJson: entry.remoteJson };
-		if (tileLocation(files) !== null) maps.set(imageId, { files, paths: entry.paths });
+	for (const [imageId, { files }] of found) {
+		if (tileLocation(files) === null) found.delete(imageId);
 	}
-	return maps;
+	return found;
 }
 
-/**
- * What the Workspace's `images/` directory says about each Map Image in it — one `list` and no
- * `read` at all.
- *
- * One walk rather than one per Layer or one per Project: a Workspace holds tens of thousands of tile
- * files, so a question answered per Layer is the walk repeated once per Layer.
- *
- * Not exported from the package: {@link referencedMapImages} is the answer callers actually
- * want, and a second door onto the raw pair is a second place for the rule to be re-read.
- */
-async function mapImageFiles(
-	store: Pick<ProjectStore, 'list'>
-): Promise<Map<string, MapImageFiles>> {
-	return new Map([...(await scanImages(store))].map(([imageId, map]) => [imageId, map.files]));
-}
-
-/**
- * The Map Images whose tiles are on somebody else's server, by image id.
- *
- * What the site write warns from (ADR-0007) and what the editor's Layers pane
- * hands the renderer an address for.
- */
 export async function referencedMapImages(
 	store: Pick<ProjectStore, 'list'>
 ): Promise<ReadonlySet<string>> {
-	const referenced = new Set<string>();
-	for (const [imageId, files] of await mapImageFiles(store)) {
-		if (tileLocation(files) === 'referenced') referenced.add(imageId);
-	}
-	return referenced;
+	const scanned = [...(await scanImages(store))];
+	return new Set(
+		scanned.filter(([, { files }]) => tileLocation(files) === 'referenced').map(([id]) => id)
+	);
 }
 
-/** Who draws what, as {@link mapImageUsage} answers it. */
-export interface MapImageUsage {
-	/** The Projects whose Layers name each image id, by image id. */
+interface MapImageUsage {
 	readonly byMap: ReadonlyMap<string, readonly MapImageUser[]>;
-	/**
-	 * Projects from a newer build, whose Layers this build cannot read — possible users of every map.
-	 *
-	 * See {@link WorkspaceMapImage.mightBeUsedBy} for why they are not simply skipped.
-	 */
 	readonly fromANewerVersion: readonly MapImageUser[];
 }
 
-/**
- * Which Projects draw which Map Images, read from every `project.json` in the Workspace.
- *
- * **The Layer stacks are the only record of it** (ADR-0023): a pyramid belongs to the Workspace and
- * carries no list of its users, so the question is answered by reading the documents that reference
- * it. Reads nothing else, and in particular no pyramid.
- *
- * A Project counted **once** however many of its Layers draw the same map, because the sentence this
- * feeds is "used by Amsterdam 1625 and Boston 1775" and naming a Project twice reads as a bug.
- *
- * **A Project whose document is corrupt is skipped in silence**, the same call `published-site.ts` makes:
- * the hub already lists it with its own problem, and a second message about its Layers would say
- * nothing a user could act on. It does mean a map used only by an unreadable Project can be deleted —
- * which is the better of the two errors, since the alternative is a map that can never be deleted
- * because of a file nothing can read.
- *
- * **A Project from a newer build is not corrupt and is not skipped.** ADR-0010 refuses to open it
- * *because it is intact*, refusal being wanted rather than partial loading — and the same
- * hub that lists it as "made with a newer version" must not, two sections below, offer to delete a map
- * it may well draw. Its Layers cannot be read, so what is known is only "this Project might use any
- * map", and that is what {@link MapImageUsage.fromANewerVersion} carries. It takes the directory
- * as its name, exactly as `listProjects` does for the same Project.
- */
 export async function mapImageUsage(
 	store: Pick<ProjectStore, 'list' | 'read'>
 ): Promise<MapImageUsage> {
@@ -275,12 +108,9 @@ export async function mapImageUsage(
 		const directory = topLevelSegment(path);
 		if (path !== projectFilePath(directory)) continue;
 
-		let layers;
-		let name;
+		let file;
 		try {
-			const file = parseProjectFile(await store.read(path));
-			layers = file.layers;
-			name = file.name || directory;
+			file = parseProjectFile(await store.read(path));
 		} catch (cause) {
 			if (cause instanceof ProjectFormatTooNewError) {
 				fromANewerVersion.push({ directory, name: directory });
@@ -288,12 +118,11 @@ export async function mapImageUsage(
 			continue;
 		}
 
-		for (const layer of layers) {
+		const name = file.name || directory;
+		for (const layer of file.layers) {
 			if (layer.kind !== 'map' || layer.imageId === '') continue;
 			const users = byMap.get(layer.imageId) ?? [];
-			if (!users.some((user) => user.directory === directory)) {
-				users.push({ directory, name });
-			}
+			if (!users.some((user) => user.directory === directory)) users.push({ directory, name });
 			byMap.set(layer.imageId, users);
 		}
 	}
@@ -301,17 +130,9 @@ export async function mapImageUsage(
 	return { byMap, fromANewerVersion };
 }
 
-/** The Projects known to draw one map. Empty is "none of the readable ones", not "none". */
 const usersOf = (usage: MapImageUsage, imageId: string): readonly MapImageUser[] =>
 	usage.byMap.get(imageId) ?? [];
 
-/**
- * Every Map Image in the Workspace, with everything the hub's list says about it.
- *
- * The one place a scholar can answer "why is my Workspace two gigabytes?". Sorted by image id, which
- * is stable across two calls and independent of the order a filesystem happens to enumerate in — a
- * reclaim list that reshuffled itself between renders would move the Delete button under the cursor.
- */
 export async function listWorkspaceMapImages(store: ProjectStore): Promise<WorkspaceMapImage[]> {
 	const scanned = await scanImages(store);
 	const usage = await mapImageUsage(store);
@@ -319,9 +140,7 @@ export async function listWorkspaceMapImages(store: ProjectStore): Promise<Works
 	const maps = await Promise.all(
 		[...scanned].map(async ([imageId, { files, paths }]): Promise<WorkspaceMapImage | null> => {
 			const tiles = tileLocation(files);
-			/* v8 ignore next -- `scanImages` has already dropped every directory this is null for. */
 			if (tiles === null) return null;
-
 			const remote = files.remoteJson ? await readRemoteRecord(store, imageId) : null;
 			const named = files.infoJson ? await readManifestLabel(store, imageId) : '';
 
@@ -332,8 +151,6 @@ export async function listWorkspaceMapImages(store: ProjectStore): Promise<Works
 					? { source: remote.source, canvasLabel: remote.canvas ? remote.label : '' }
 					: null,
 				tiles,
-				// A copied map's tiles are here, so it names no Library even though it still
-				// records where it came from.
 				library: tiles === 'referenced' ? libraryOf(remote?.service ?? '') : '',
 				thumbnail:
 					tiles === 'in-workspace'
@@ -349,24 +166,12 @@ export async function listWorkspaceMapImages(store: ProjectStore): Promise<Works
 	return maps.filter((map) => map !== null).sort((a, b) => a.imageId.localeCompare(b.imageId));
 }
 
-/** What a Map Image has to look like to be counted, whoever is doing the counting. */
 interface Reclaimable {
 	readonly bytes: number;
 	readonly usedBy: readonly unknown[];
 	readonly mightBeUsedBy: readonly unknown[];
 }
 
-/**
- * The Map Images in a listing that no Project draws, and what they weigh.
- *
- * **The single definition of this ticket's headline figure**, so the hub's "of which 340 MB is used
- * by no Project" and the site write's warning cannot disagree. It was written twice — once here and once
- * as a pair of `$derived` reductions in `ProjectHub.svelte` — which is how the reclaim list and the
- * site warning end up quoting different numbers for the same Workspace on the same screen.
- *
- * A Project this build cannot read counts as a user, so a Workspace holding one has nothing unused:
- * see {@link WorkspaceMapImage.mightBeUsedBy}.
- */
 export function unusedMapImages<T extends Reclaimable>(
 	maps: readonly T[]
 ): { maps: T[]; bytes: number } {
@@ -374,47 +179,25 @@ export function unusedMapImages<T extends Reclaimable>(
 	return { maps: unused, bytes: unused.reduce((sum, map) => sum + map.bytes, 0) };
 }
 
-/**
- * The byte weight of the Map Images no Project uses, for ADR-0008's hosting warning.
- *
- * **Weighs only the unused maps**, which is what keeps this cheap enough to run on every site plan:
- * the classification and the usage cost one walk of `images/` and one read per Project, and the `size`
- * calls — the part that scales with the number of tiles — happen only for directories nothing draws.
- * In the ordinary Workspace, where every map is in use, there are none. The filter and the sum are
- * {@link unusedMapImages}', so this is the same figure the hub states and not a second one.
- */
 export async function unusedMapImageBytes(
 	store: ProjectStore
 ): Promise<{ bytes: number; maps: number }> {
 	const scanned = await scanImages(store);
 	const usage = await mapImageUsage(store);
-
-	const counted = await Promise.all(
-		[...scanned].map(async ([imageId, { paths }]) => {
-			const usedBy = usersOf(usage, imageId);
-			const unused = usedBy.length === 0 && usage.fromANewerVersion.length === 0;
-			return {
-				usedBy,
-				mightBeUsedBy: usage.fromANewerVersion,
-				bytes: unused ? (await weigh(store, imageId, paths)).bytes : 0
-			};
-		})
+	if (usage.fromANewerVersion.length > 0) return { bytes: 0, maps: 0 };
+	const unused = [...scanned].filter(([imageId]) => usersOf(usage, imageId).length === 0);
+	const weights = await Promise.all(
+		unused.map(([imageId, { paths }]) => weigh(store, imageId, paths))
 	);
-
-	const unused = unusedMapImages(counted);
-	return { bytes: unused.bytes, maps: unused.maps.length };
+	return { bytes: weights.reduce((sum, { bytes }) => sum + bytes, 0), maps: unused.length };
 }
 
-/** Everything deleting this map would reclaim, from `size` and never from `read`. */
 async function weigh(
 	store: Pick<ProjectStore, 'size'>,
 	imageId: string,
 	paths: readonly StorePath[]
 ): Promise<{ bytes: number; files: number }> {
 	const sizes = await Promise.all(paths.map((path) => store.size(path).catch(() => 0)));
-	// The Alignment as well as the pyramid, because deletion takes it — so the figure the user reads
-	// beside the Delete button is what the Workspace total actually drops by. A map nobody has placed
-	// yet has none, which is the ordinary first state rather than a failure.
 	const placement = await store.size(alignmentPath(imageId)).catch(() => null);
 
 	return {
@@ -423,45 +206,26 @@ async function weigh(
 	};
 }
 
-/**
- * Deleting this Map Image would break Projects that draw it, so it was not deleted.
- *
- * **A refusal and not a confirmation offering to cascade.** One click that destroys three arguments is
- * not a click this application has; the message names the Projects, and the user removes the Layers
- * themselves if that is what they want.
- */
 export class MapImageInUseError extends Error {
-	readonly imageId: string;
-	/** The Projects that draw it, in the order the message names them. */
-	readonly projects: readonly MapImageUser[];
-	/** The Projects this build cannot read the Layers of, which may draw it (ADR-0010). */
-	readonly fromANewerVersion: readonly MapImageUser[];
-
+	override readonly name = 'MapImageInUseError';
 	constructor(
-		imageId: string,
+		readonly imageId: string,
 		label: string,
-		projects: readonly MapImageUser[],
-		fromANewerVersion: readonly MapImageUser[] = []
+		readonly projects: readonly MapImageUser[],
+		readonly fromANewerVersion: readonly MapImageUser[] = []
 	) {
 		super(refusalMessage(label || imageId, projects, fromANewerVersion));
-		this.name = 'MapImageInUseError';
-		this.imageId = imageId;
-		this.projects = projects;
-		this.fromANewerVersion = fromANewerVersion;
 	}
 }
 
 const namesOf = (users: readonly MapImageUser[]): string =>
 	users.map((user) => `“${user.name}”`).join(' and ');
 
-/** The refusal, in the words the hub renders. */
 function refusalMessage(
 	named: string,
 	projects: readonly MapImageUser[],
 	fromANewerVersion: readonly MapImageUser[]
 ): string {
-	// The Projects from a newer build alone. There is no list of Layers to name, so the sentence says
-	// what is actually known — the document could not be read — and names the two ways out.
 	if (projects.length === 0) {
 		const one = fromANewerVersion.length === 1;
 		return (
@@ -487,62 +251,23 @@ function refusalMessage(
 	);
 }
 
-/**
- * Some of the map's files were removed and the rest could not be, so the Workspace is between states.
- *
- * **Its own error because "could not be deleted" is a false story here.** A deletion that failed
- * halfway has already taken the Alignment and some of the tiles; telling the user nothing happened
- * would leave them believing a map they can still see is intact. What is guaranteed instead is that
- * the map is *still listed* — `info.json` and `remote.json` are deleted last precisely so the file the
- * listing classifies by outlives every earlier failure — so the next render explains the leftover
- * rather than hiding it, and deleting again finishes the job.
- */
 export class MapImagePartlyDeletedError extends Error {
-	readonly imageId: string;
-	/** How many files were removed before the failure. Always at least one. */
-	readonly removed: number;
-
-	constructor(imageId: string, label: string, removed: number, cause: unknown) {
-		const reason = cause instanceof Error ? cause.message : String(cause);
+	override readonly name = 'MapImagePartlyDeletedError';
+	constructor(
+		readonly imageId: string,
+		label: string,
+		readonly removed: number,
+		cause: unknown
+	) {
 		super(
 			`“${label || imageId}” was only partly deleted: ${removed} of its ` +
 				`${removed === 1 ? 'file was' : 'files were'} removed and the rest could not be. It is still ` +
-				`listed, and deleting it again will finish the job. The Workspace reported: ${reason}`,
+				`listed, and deleting it again will finish the job. The Workspace reported: ${messageOf(cause)}`,
 			{ cause }
 		);
-		this.name = 'MapImagePartlyDeletedError';
-		this.imageId = imageId;
-		this.removed = removed;
 	}
 }
 
-/**
- * Delete one Map Image: its pyramid, its `remote.json`, and its Alignment.
- *
- * **All three, or the Workspace keeps an orphaned Alignment for a map that no longer exists** — and
- * `alignments/<id>.json` is what a later import would deduplicate against, so the leftover would make
- * a colleague's copy of the same map arrive without its own placement.
- *
- * **The refusal is checked before anything is deleted**, which is the whole of its value: a refusal
- * that had already removed half the tiles would leave the Projects it was protecting drawing a
- * half-pyramid.
- *
- * **The order is chosen for the failure, not for the success**, because a `delete` can refuse at any
- * point — a lock, a revoked folder grant, a disk that filled while a temporary file was open:
- *
- *   1. the **Alignment first**, so that no failure below it can leave `alignments/<id>.json` behind
- *      for a map that is gone, which is the one leftover this function exists to prevent;
- *   2. the tiles and the manifest;
- *   3. **`remote.json` and then `info.json` last**, making an offline copy the ingest, which writes `info.json`
- *      last precisely so that an incomplete pyramid is invisible. They are the two files
- *      {@link tileLocation} classifies by, so while either survives the map is still *listed* — a
- *      half-deleted map the user can see and finish deleting, rather than orphaned bytes that no
- *      listing mentions and no total explains.
- *
- * @throws MapImageInUseError when any Project's Layers draw it, or when a Project this build
- *   cannot read might
- * @throws MapImagePartlyDeletedError when a `delete` refuses after the first one succeeded
- */
 export async function deleteMapImage(
 	store: ProjectStore,
 	imageId: string,
@@ -555,26 +280,9 @@ export async function deleteMapImage(
 	}
 
 	const directory = `${imageDirectory(imageId)}/`;
-	// ⚠ **Before the deletions, not after.** The half-finished writes `list`
-	// cannot report and `delete` cannot be handed: without this sweep a "deleted" map's directory
-	// survives on disk holding bytes that are also missing from the totals the size list exists to
-	// explain. Scoped to this map's own directory, so it cannot reach the temporary file of an ingest
-	// running beside it.
-	//
-	// It ran *last*, and that was an uncovered exit: it runs after every file has been deleted, so a
-	// rejection from it left the map entirely gone and threw something that is neither
-	// {@link MapImageInUseError} nor {@link MapImagePartlyDeletedError} — falsifying the
-	// rule the caller sweeps its journal by, that `PartlyDeleted` is the only failure meaning bytes
-	// are gone. Wrapping it in a `PartlyDeleted` would have been a lie in the other direction: that
-	// error tells the user the map "is still listed and deleting it again will finish the job", and
-	// by then it is not listed and there is nothing left to delete. First, it has nothing to
-	// contradict — nothing has been removed yet, so a rejection is the plain failure it looks like,
-	// and no deletion below it can create a new temporary file for it to have missed.
 	await store.reclaimAbandonedWrites(directory);
 	const listed = await store.list(directory);
 	const classifiers = [referencedImagePath(imageId), imageInfoPath(imageId)];
-	// Asked for rather than assumed, so that `removed` below counts files that were really there: a
-	// map nobody has placed yet has no Alignment, which is the ordinary first state.
 	const placement = await store.size(alignmentPath(imageId)).then(
 		() => [alignmentPath(imageId)],
 		() => []
@@ -590,8 +298,6 @@ export async function deleteMapImage(
 		try {
 			await store.delete(path);
 		} catch (cause) {
-			// Nothing has gone yet, so the caller's own error is the honest one — there is no half state
-			// to describe.
 			if (removed === 0) throw cause;
 			throw new MapImagePartlyDeletedError(imageId, options.label ?? '', removed, cause);
 		}
@@ -599,38 +305,19 @@ export async function deleteMapImage(
 	}
 }
 
-/**
- * Split the Workspace's remote-origin records by whether a pyramid of ours is beside them.
- *
- * So that it and {@link referencedMapImages}
- * answer through {@link tileLocation} rather than through two independent readings of the same rule.
- *
- * `offlineCopies` keeps its record, which is why this is a partition of the records rather than a
- * removal from them: a Map Image with an Offline Copy must still be able to say where it came
- * from (ADR-0007 — an offline copy must not orphan the citation).
- *
- * **It carries one observation through the rule rather than two**, since `remoteJson` is true by
- * construction here — see the note in the module header.
- */
 export function partitionByOfflineCopy(
 	images: readonly ReferencedImage[],
 	ingested: readonly { readonly imageId: string }[]
 ): { referenced: ReferencedImage[]; offlineCopies: ReferencedImage[] } {
 	const local = new Set(ingested.map((image) => image.imageId));
-	const referenced: ReferencedImage[] = [];
-	const offlineCopies: ReferencedImage[] = [];
-
-	for (const image of images) {
-		// Every image here came from a `remote.json`, which is `remoteJson: true`; `ingested` is the
-		// `info.json` half. The same two observations the listing walk makes, through the same rule.
-		const where = tileLocation({ infoJson: local.has(image.imageId), remoteJson: true });
-		(where === 'referenced' ? referenced : offlineCopies).push(image);
-	}
-
-	return { referenced, offlineCopies };
+	const isReferenced = (image: ReferencedImage) =>
+		tileLocation({ infoJson: local.has(image.imageId), remoteJson: true }) === 'referenced';
+	return {
+		referenced: images.filter(isReferenced),
+		offlineCopies: images.filter((image) => !isReferenced(image))
+	};
 }
 
-/** The record beside a referenced map, or `null` when it will not parse. */
 async function readRemoteRecord(
 	store: Pick<ProjectStore, 'read'>,
 	imageId: string
@@ -638,49 +325,30 @@ async function readRemoteRecord(
 	try {
 		return parseReferencedImage(await store.read(referencedImagePath(imageId)), { imageId });
 	} catch {
-		// A record that will not parse costs the label and the Library, and the map is still listed with
-		// its size: this is the reclaim list, and a map nothing can read is one a user most needs to be
-		// able to delete.
 		return null;
 	}
 }
 
-/** What the user calls a locally held map, out of its manifest, or `''`. */
 async function readManifestLabel(
 	store: Pick<ProjectStore, 'read'>,
 	imageId: string
 ): Promise<string> {
 	try {
 		const bytes = await store.read(imageManifestPath(imageId));
-		return readImageLabel(JSON.parse(new TextDecoder().decode(bytes)));
+		return readImageLabel(parseJsonBytes(bytes));
 	} catch {
 		return '';
 	}
 }
 
-/**
- * The URL of the coarsest tile of a Workspace-held map's pyramid — the picture of the sheet — or
- * `null` when its `info.json` will not yield the geometry to name it (ADR-0030).
- *
- * ⚠ **The base is always `imageServiceId(imageId)`, and never the `id` field of the document just
- * read.** After an opt-in canonical stamp that field holds the *stamped* address, which the ADR-0011
- * shim does not route — so a URL built on it would send the editor to the internet for a picture of a
- * file it is holding, working or broken according to whether the site happens to be live. Only
- * `width`, `height` and `tiles[0].width` are taken from the document.
- *
- * `null` and never a guess: {@link imageGeometryFromInfo} explains why defaulting the tile side would
- * produce a URL at the wrong scale factor and a broken box rather than an honest blank.
- */
 async function readWorkspaceThumbnail(
 	store: Pick<ProjectStore, 'read'>,
 	imageId: string
 ): Promise<string | null> {
 	let info: unknown;
 	try {
-		info = JSON.parse(new TextDecoder().decode(await store.read(imageInfoPath(imageId))));
+		info = parseJsonBytes(await store.read(imageInfoPath(imageId)));
 	} catch {
-		// A document that cannot be read or will not parse costs the picture and nothing else: this is
-		// the reclaim list, and a map whose records are damaged is one a user most needs to see.
 		return null;
 	}
 
@@ -691,37 +359,13 @@ async function readWorkspaceThumbnail(
 	);
 }
 
-/**
- * The URL of the coarsest tile of a referenced map's pyramid, on the Library's own server — or `null`
- * when the record does not carry the geometry to name it (ADR-0030).
- *
- * **The same derivation as the Workspace-held case**, from the same function: one rule, two sources for
- * its three inputs. That a tile at this address is actually servable is established at add time rather
- * than assumed here — `createImagePane` requires the coarsest level to reduce the sheet to a single
- * tile, `extendedTileset` synthesises that level for a service declaring none, and the probe fetches
- * that exact tile before the resource is accepted.
- *
- * `service` is used verbatim: `referencedImage` has already put it through `canonicalServiceUri`, so
- * re-normalising it here would be a second spelling of one address.
- */
 function referencedThumbnail(record: ReferencedImage | null): string | null {
-	// A record that would not parse costs the picture along with the label, and `tileSize` is `0` for one
-	// written before the field existed — re-adding the map is the whole remedy (ADR-0030: no backfill,
-	// and nothing fetches `info.json` on open to repair it).
 	if (record === null) return null;
 	const { width, height, tileSize } = record;
 	if (width === 0 || height === 0 || tileSize === 0) return null;
 	return wholeImageDerivative(width, height, tileSize).url(record.service);
 }
 
-/**
- * The Library a service URI names, by its address, or `''` when there is not one to name.
- *
- * The address stands in for the institution because it is what the record actually holds — a
- * `remote.json` carries a service URI and no institutional name — and `iiif.bnf.example` is still the
- * fact a scholar needs: this map comes from somewhere else and will stop working if that somewhere
- * else reorganises.
- */
 function libraryOf(service: string): string {
 	try {
 		return new URL(service).host;
